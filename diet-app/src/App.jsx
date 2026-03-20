@@ -617,13 +617,11 @@ export default function App() {
               <button onClick={()=>setPreview(null)} style={{ border:"none", background:"none", fontSize:20, cursor:"pointer", color:t.textMuted }}>✕</button>
             </div>
           )}
-          <div style={{ padding:"8px 12px", background:t.card, borderTop:`1px solid ${t.border}`, display:"flex", gap:6, overflowX:"auto" }}>
-            {QUICK.map((q,i) => (
-              <button key={i} onClick={()=>send(q.replace(/^.{2}/,"").trim())} disabled={busy}
-                style={{ flexShrink:0, padding:"6px 12px", borderRadius:16, border:`1px solid ${t.primary}`, background:"transparent", color:t.primary, fontSize:12, fontWeight:500, cursor:"pointer", whiteSpace:"nowrap", opacity:busy?0.5:1, transition:"all 0.2s" }}>
-                {q}
-              </button>
-            ))}
+          <div style={{ padding:"8px 12px", background:t.card, borderTop:`1px solid ${t.border}`, display:"flex", gap:6 }}>
+            <button onClick={()=>addWater(500)} disabled={busy}
+              style={{ padding:"6px 14px", borderRadius:16, border:`1px solid ${t.primary}`, background:"transparent", color:t.primary, fontSize:13, fontWeight:500, cursor:"pointer", whiteSpace:"nowrap", opacity:busy?0.5:1, transition:"all 0.2s" }}>
+              💧 물 추가 500ml
+            </button>
           </div>
           <div style={{ padding:"10px 12px 20px", background:t.card, borderTop:`1px solid ${t.border}`, display:"flex", gap:8, alignItems:"center" }}>
             <button onClick={()=>fileRef.current.click()} disabled={busy} style={{ width:42, height:42, borderRadius:"50%", border:`1.5px solid ${t.primary}`, background:t.inputBg, fontSize:20, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, opacity:busy?0.5:1, transition:"all 0.2s" }}>📷</button>
