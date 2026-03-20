@@ -331,19 +331,27 @@ export default function App() {
   }
 
   // ── 로그인 화면 ──
+  function pickUser(name) {
+    setUserIdState(name); save("userId", name); setUserId(name);
+  }
+
   if (!userId) {
     return (
       <div style={{ display:"flex", flexDirection:"column", height:"100vh", maxWidth:480, margin:"0 auto", fontFamily:"'Apple SD Gothic Neo','Noto Sans KR',sans-serif", background:"#f0fdf4", justifyContent:"center", alignItems:"center", padding:32 }}>
         <div style={{ width:80, height:80, borderRadius:"50%", background:"#16a34a", display:"flex", alignItems:"center", justifyContent:"center", fontSize:40, marginBottom:20 }}>🥗</div>
         <div style={{ fontSize:24, fontWeight:700, color:"#16a34a", marginBottom:8 }}>다이어트 쌤</div>
-        <div style={{ fontSize:14, color:"#888", marginBottom:32 }}>닉네임을 입력하고 시작하세요</div>
-        <input value={nickInput} onChange={e => setNickInput(e.target.value)} onKeyDown={e => e.key === "Enter" && login()}
-          placeholder="닉네임 입력" autoFocus
-          style={{ width:"100%", padding:"14px 18px", borderRadius:16, border:"2px solid #bbf7d0", background:"#fff", fontSize:16, outline:"none", textAlign:"center", marginBottom:12, color:"#111" }} />
-        <button onClick={login} disabled={!nickInput.trim()}
-          style={{ width:"100%", padding:"14px", borderRadius:16, border:"none", background:nickInput.trim()?"#16a34a":"#dcfce7", color:nickInput.trim()?"#fff":"#6ee7b7", fontSize:16, fontWeight:600, cursor:"pointer" }}>
-          시작하기
-        </button>
+        <div style={{ fontSize:14, color:"#888", marginBottom:32 }}>누구세요?</div>
+        <div style={{ display:"flex", gap:16, width:"100%" }}>
+          {[{name:"곰탱이",emoji:"🐻"},{name:"베베",emoji:"🐰"}].map(u => (
+            <button key={u.name} onClick={() => pickUser(u.name)}
+              style={{ flex:1, padding:"24px 16px", borderRadius:20, border:"2px solid #bbf7d0", background:"#fff", cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", gap:8, transition:"all 0.2s" }}
+              onMouseEnter={e => { e.currentTarget.style.background="#f0fdf4"; e.currentTarget.style.borderColor="#16a34a"; }}
+              onMouseLeave={e => { e.currentTarget.style.background="#fff"; e.currentTarget.style.borderColor="#bbf7d0"; }}>
+              <span style={{ fontSize:48 }}>{u.emoji}</span>
+              <span style={{ fontSize:18, fontWeight:700, color:"#16a34a" }}>{u.name}</span>
+            </button>
+          ))}
+        </div>
       </div>
     );
   }
