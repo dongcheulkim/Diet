@@ -7,23 +7,29 @@ let _userId = "";
 function setUserId(id) { _userId = id; }
 
 async function sbGet(table, filters="") {
-  const res = await fetch(`${SUPA_URL}/rest/v1/${table}?${filters}&user_id=eq.${_userId}`, {
-    headers: { "apikey": SUPA_KEY, "Authorization": `Bearer ${SUPA_KEY}` }
-  });
-  return res.ok ? res.json() : [];
+  try {
+    const res = await fetch(`${SUPA_URL}/rest/v1/${table}?${filters}&user_id=eq.${_userId}`, {
+      headers: { "apikey": SUPA_KEY, "Authorization": `Bearer ${SUPA_KEY}` }
+    });
+    if (!res.ok) { console.error("sbGet error:", res.status, await res.text()); return null; }
+    return res.json();
+  } catch(e) { console.error("sbGet fetch error:", e); return null; }
 }
 
 async function sbUpsert(table, data) {
-  await fetch(`${SUPA_URL}/rest/v1/${table}`, {
-    method: "POST",
-    headers: {
-      "apikey": SUPA_KEY,
-      "Authorization": `Bearer ${SUPA_KEY}`,
-      "Content-Type": "application/json",
-      "Prefer": "resolution=merge-duplicates"
-    },
-    body: JSON.stringify({ ...data, user_id: _userId })
-  });
+  try {
+    const res = await fetch(`${SUPA_URL}/rest/v1/${table}`, {
+      method: "POST",
+      headers: {
+        "apikey": SUPA_KEY,
+        "Authorization": `Bearer ${SUPA_KEY}`,
+        "Content-Type": "application/json",
+        "Prefer": "resolution=merge-duplicates"
+      },
+      body: JSON.stringify({ ...data, user_id: _userId })
+    });
+    if (!res.ok) console.error("sbUpsert error:", res.status, await res.text());
+  } catch(e) { console.error("sbUpsert fetch error:", e); }
 }
 
 // ── 한국 음식 칼로리 DB ──
@@ -162,25 +168,27 @@ function save(key, val) { try { localStorage.setItem(key, JSON.stringify(val)); 
 function ukey(userId, key) { return userId ? `${userId}_${key}` : key; }
 
 async function syncFromSupabase(setWeightLog, setDailyLog, setGoalWeight, setHeight, uid) {
-  try {
-    const weights = await sbGet("weight_log", "order=date.asc");
-    if (weights.length > 0) {
-      const wLog = weights.map(w => ({ date: w.date, kg: w.kg }));
-      setWeightLog(wLog); save(ukey(uid,"wLog"), wLog);
-    } else { setWeightLog([]); }
-    const days = await sbGet("daily_log", "");
-    if (days.length > 0) {
-      const dLog = {};
-      days.forEach(d => { dLog[d.date] = { food: d.food||[], water: d.water||0, exercise: d.exercise||[] }; });
-      setDailyLog(dLog); save(ukey(uid,"dLog"), dLog);
-    } else { setDailyLog({}); }
-    const settings = await sbGet("user_settings", "");
-    if (settings.length > 0) {
-      const gw = settings[0].goal_weight; const h = settings[0].height;
-      setGoalWeight(gw || null); save(ukey(uid,"goal"), gw || null);
-      setHeight(h || null); save(ukey(uid,"height"), h || null);
-    } else { setGoalWeight(null); setHeight(null); }
-  } catch(e) { console.log("Supabase sync error:", e); }
+  // Supabase에서 가져오되, 실패하면 로컬 데이터 유지
+  const weights = await sbGet("weight_log", "order=date.asc");
+  if (weights && weights.length > 0) {
+    const wLog = weights.map(w => ({ date: w.date, kg: w.kg }));
+    setWeightLog(wLog); save(ukey(uid,"wLog"), wLog);
+  }
+  // weights가 null이면 에러 → 로컬 유지, 빈 배열이면 진짜 없음
+
+  const days = await sbGet("daily_log", "");
+  if (days && days.length > 0) {
+    const dLog = {};
+    days.forEach(d => { dLog[d.date] = { food: d.food||[], water: d.water||0, exercise: d.exercise||[] }; });
+    setDailyLog(dLog); save(ukey(uid,"dLog"), dLog);
+  }
+
+  const settings = await sbGet("user_settings", "");
+  if (settings && settings.length > 0) {
+    const gw = settings[0].goal_weight; const h = settings[0].height;
+    if (gw) { setGoalWeight(gw); save(ukey(uid,"goal"), gw); }
+    if (h) { setHeight(h); save(ukey(uid,"height"), h); }
+  }
 }
 
 // ── CSS 애니메이션 ──
