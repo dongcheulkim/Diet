@@ -2,10 +2,12 @@ import { useState, useRef, useEffect, useCallback } from "react";
 
 const SUPA_URL = import.meta.env.VITE_SUPABASE_URL || "https://ncglsgerqoawmrwbfkpo.supabase.co";
 const SUPA_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
-const USER_ID = "dongchul";
+
+let _userId = "";
+function setUserId(id) { _userId = id; }
 
 async function sbGet(table, filters="") {
-  const res = await fetch(`${SUPA_URL}/rest/v1/${table}?${filters}&user_id=eq.${USER_ID}`, {
+  const res = await fetch(`${SUPA_URL}/rest/v1/${table}?${filters}&user_id=eq.${_userId}`, {
     headers: { "apikey": SUPA_KEY, "Authorization": `Bearer ${SUPA_KEY}` }
   });
   return res.ok ? res.json() : [];
@@ -20,7 +22,7 @@ async function sbUpsert(table, data) {
       "Content-Type": "application/json",
       "Prefer": "resolution=merge-duplicates"
     },
-    body: JSON.stringify({ ...data, user_id: USER_ID })
+    body: JSON.stringify({ ...data, user_id: _userId })
   });
 }
 
@@ -307,12 +309,44 @@ function stripAutoRecord(text) {
 }
 
 export default function App() {
+  const [userId, setUserIdState] = useState(() => load("userId", null));
+  const [nickInput, setNickInput] = useState("");
   const [tab, setTab] = useState("chat");
   const [dark, setDark] = useState(() => load("darkMode", false));
   const t = dark ? themes.dark : themes.light;
   const motivation = MOTIVATION[new Date().getDay() % MOTIVATION.length];
 
+  // userId 설정 시 모듈 변수도 동기화
+  useEffect(() => { if (userId) setUserId(userId); }, [userId]);
   useEffect(() => { save("darkMode", dark); }, [dark]);
+
+  function login() {
+    const nick = nickInput.trim();
+    if (!nick) return;
+    setUserIdState(nick); save("userId", nick); setUserId(nick);
+  }
+
+  function logout() {
+    setUserIdState(null); save("userId", null); setUserId("");
+  }
+
+  // ── 로그인 화면 ──
+  if (!userId) {
+    return (
+      <div style={{ display:"flex", flexDirection:"column", height:"100vh", maxWidth:480, margin:"0 auto", fontFamily:"'Apple SD Gothic Neo','Noto Sans KR',sans-serif", background:"#f0fdf4", justifyContent:"center", alignItems:"center", padding:32 }}>
+        <div style={{ width:80, height:80, borderRadius:"50%", background:"#16a34a", display:"flex", alignItems:"center", justifyContent:"center", fontSize:40, marginBottom:20 }}>🥗</div>
+        <div style={{ fontSize:24, fontWeight:700, color:"#16a34a", marginBottom:8 }}>다이어트 쌤</div>
+        <div style={{ fontSize:14, color:"#888", marginBottom:32 }}>닉네임을 입력하고 시작하세요</div>
+        <input value={nickInput} onChange={e => setNickInput(e.target.value)} onKeyDown={e => e.key === "Enter" && login()}
+          placeholder="닉네임 입력" autoFocus
+          style={{ width:"100%", padding:"14px 18px", borderRadius:16, border:"2px solid #bbf7d0", background:"#fff", fontSize:16, outline:"none", textAlign:"center", marginBottom:12, color:"#111" }} />
+        <button onClick={login} disabled={!nickInput.trim()}
+          style={{ width:"100%", padding:"14px", borderRadius:16, border:"none", background:nickInput.trim()?"#16a34a":"#dcfce7", color:nickInput.trim()?"#fff":"#6ee7b7", fontSize:16, fontWeight:600, cursor:"pointer" }}>
+          시작하기
+        </button>
+      </div>
+    );
+  }
 
   // ── 풀 투 리프레시 ──
   const [pullY, setPullY] = useState(0);
@@ -643,9 +677,13 @@ export default function App() {
         <div style={{ display:"flex", alignItems:"center", gap:12 }}>
           <div style={{ width:40, height:40, borderRadius:"50%", background:"rgba(255,255,255,0.2)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:20 }}>🥗</div>
           <div style={{ flex:1 }}>
-            <div style={{ color:t.headerText, fontWeight:600, fontSize:16 }}>다이어트 쌤</div>
+            <div style={{ color:t.headerText, fontWeight:600, fontSize:16 }}>다이어트 쌤 <span style={{ fontSize:12, fontWeight:400, opacity:0.8 }}>({userId})</span></div>
             <div style={{ color:t.headerSub, fontSize:11 }}>{busy||weeklyBusy?"분석 중...":"온라인 · 사진 분석 가능"}</div>
           </div>
+          {/* 로그아웃 */}
+          <button onClick={logout} style={{ width:36, height:36, borderRadius:"50%", border:"none", background:"rgba(255,255,255,0.2)", fontSize:14, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", transition:"all 0.2s", color:"#fff" }}>
+            ↩
+          </button>
           {/* 다크모드 토글 */}
           <button onClick={() => setDark(!dark)} style={{ width:36, height:36, borderRadius:"50%", border:"none", background:"rgba(255,255,255,0.2)", fontSize:18, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", transition:"all 0.2s" }}>
             {dark ? "☀️" : "🌙"}
