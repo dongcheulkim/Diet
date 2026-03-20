@@ -331,11 +331,31 @@ export default function App() {
 
   function logout() {
     setUserIdState(null); save("userId", null); setUserId("");
+    setWeightLog([]); setDailyLog({}); setGoalWeight(null); setHeight(null);
+    setFavorites([]); setChecks(DEFAULT_CHECKLIST.map(()=>false));
+    setMsgs([{ role:"assistant", text:"안녕하세요! 저는 다이어트 쌤이에요 🥗" }]);
+    history.current = [];
   }
 
   function pickUser(name) {
-    setUserIdState(name); save("userId", name); setUserId(name);
+    setUserId(name);
+    setUserIdState(name); save("userId", name);
+    // 유저별 로컬 데이터 로드
+    setWeightLog(load(ukey(name,"wLog"), []));
+    setDailyLog(load(ukey(name,"dLog"), {}));
+    setGoalWeight(load(ukey(name,"goal"), null));
+    setHeight(load(ukey(name,"height"), null));
+    setFavorites(load(ukey(name,"favFoods"), []));
+    setChecks(load(ukey(name,"checks_"+new Date().toISOString().slice(0,10)), DEFAULT_CHECKLIST.map(()=>false)));
+    // 나머지 초기화
+    setRoutineResult(""); setWeeklyResult(""); setSelectedDate(null);
+    setPreview(null); setError(""); setInput(""); setFInput(""); setFCalInput("");
+    setWaterInput(""); setExInput(""); setGoalInput(""); setHeightInput("");
+    setMsgs([{ role:"assistant", text:`${name}님 안녕! 다이어트 쌤이에요 🥗\n뭐 먹었는지, 운동했는지 알려주시면 기록해드릴게요!` }]);
+    history.current = [];
   }
+
+  const DEFAULT_CHECKLIST = ["체중 기록하기 ⚖️","물 2000ml 마시기 💧","운동하기 🏃","야식 안 먹기 🌙","채소 먹기 🥦"];
 
   // ── 풀 투 리프레시 ──
   const [pullY, setPullY] = useState(0);
@@ -414,7 +434,6 @@ export default function App() {
     setFavorites(updated); save(ukey(userId,"favFoods"), updated);
   }
 
-  const DEFAULT_CHECKLIST = ["체중 기록하기 ⚖️","물 2000ml 마시기 💧","운동하기 🏃","야식 안 먹기 🌙","채소 먹기 🥦"];
   const [checks, setChecks] = useState(() => load(ukey(userId,"checks_"+new Date().toISOString().slice(0,10)), DEFAULT_CHECKLIST.map(()=>false)));
 
   function saveHeight() {
