@@ -114,6 +114,14 @@ const SYSTEM = `당신은 다이어트 코치 "다이어트 쌤"입니다.
 3. 추천 운동 3~5가지 (세트/횟수 포함)
 4. 식단 조언 한줄
 
+## 인바디 결과지 분석 (사진 있을 때)
+인바디 결과지 사진이 오면:
+1. 주요 수치 읽기: 체중, 골격근량, 체지방량, 체지방률, BMI
+2. 간단 평가: 근육량 충분/부족, 체지방 적정/과다
+3. 이전 인바디 데이터가 있으면 변화 비교
+4. 맞춤 한줄 조언 (근육 늘리기 or 체지방 줄이기 등)
+- 수치를 auto_record로 기록하지 않음 (채팅으로만 분석)
+
 ## 자동 기록 (중요)
 사용자가 음식을 먹었다, 물을 마셨다, 운동했다고 말하면
 응답 맨 마지막에 반드시 아래 JSON을 추가:
@@ -220,6 +228,7 @@ function TabBar({ tab, setTab, t }) {
   const tabs = [
     { id:"chat",   label:"💬 채팅" },
     { id:"record", label:"📝 기록" },
+    { id:"calendar", label:"📅 캘린더" },
     { id:"stats",  label:"📈 통계" },
     { id:"weekly", label:"🏆 리포트" },
   ];
@@ -382,6 +391,11 @@ export default function App() {
     setRoutineBusy(false);
   }
 
+  // ── 캘린더 ──
+  const [calYear, setCalYear] = useState(new Date().getFullYear());
+  const [calMonth, setCalMonth] = useState(new Date().getMonth());
+  const [selectedDate, setSelectedDate] = useState(null);
+
   // ── 주간 리포트 ──
   const [weeklyResult, setWeeklyResult] = useState("");
   const [weeklyBusy, setWeeklyBusy] = useState(false);
@@ -434,13 +448,29 @@ export default function App() {
   function addWater(ml) { const amount = ml || parseInt(waterInput) || 200; updateToday({ water:(todayData.water||0)+amount }); if (!ml) setWaterInput(""); }
   function addEx(ex) { const name = ex || exInput.trim(); if (!name) return; updateToday({ exercise:[...todayData.exercise, name] }); if (!ex) setExInput(""); }
 
-  // 칼로리 자동 추정
+  // 음식 자동완성
+  const [foodSuggestions, setFoodSuggestions] = useState([]);
+
   function onFoodInputChange(val) {
     setFInput(val);
-    if (val.trim()) {
+    const trimmed = val.trim().toLowerCase();
+    if (trimmed.length > 0) {
+      const matches = Object.entries(FOOD_DB)
+        .filter(([key]) => key.includes(trimmed))
+        .slice(0, 5)
+        .map(([name, cal]) => ({ name, cal }));
+      setFoodSuggestions(matches);
       const est = estimateCalories(val);
       if (est && !fCalInput) setFCalInput(String(est));
+    } else {
+      setFoodSuggestions([]);
     }
+  }
+
+  function selectSuggestion(s) {
+    setFInput(s.name);
+    setFCalInput(String(s.cal));
+    setFoodSuggestions([]);
   }
 
   const latestKg = weightLog.length > 0 ? weightLog[weightLog.length-1].kg : null;
@@ -726,10 +756,24 @@ export default function App() {
                     총 {totalCal} kcal
                   </div>
                 </div>
-                <div style={{ display:"flex", gap:6, marginBottom:8 }}>
-                  <input value={fInput} onChange={e=>onFoodInputChange(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addFood()} placeholder="음식 이름" style={{ ...inputStyle, flex:2 }} />
-                  <input value={fCalInput} onChange={e=>setFCalInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addFood()} placeholder="kcal" type="number" style={{ ...inputStyle, flex:1 }} />
-                  {addBtn(() => addFood())}
+                <div style={{ display:"flex", gap:6, marginBottom:4 }}>
+                  <div style={{ flex:2, position:"relative" }}>
+                    <input value={fInput} onChange={e=>onFoodInputChange(e.target.value)} onKeyDown={e=>e.key==="Enter"&&(addFood(),setFoodSuggestions([]))} placeholder="음식 이름" style={{ ...inputStyle, width:"100%" }} />
+                    {foodSuggestions.length > 0 && (
+                      <div style={{ position:"absolute", top:"100%", left:0, right:0, background:t.card, border:`1px solid ${t.border}`, borderRadius:12, marginTop:4, zIndex:10, boxShadow:`0 4px 12px ${t.shadow}`, overflow:"hidden" }}>
+                        {foodSuggestions.map((s,i) => (
+                          <div key={i} onClick={() => selectSuggestion(s)}
+                            style={{ padding:"8px 12px", fontSize:13, color:t.text, cursor:"pointer", display:"flex", justifyContent:"space-between", borderBottom:i<foodSuggestions.length-1?`1px solid ${t.border}`:"none" }}
+                            onMouseEnter={e=>e.target.style.background=t.tagBg} onMouseLeave={e=>e.target.style.background="transparent"}>
+                            <span>{s.name}</span>
+                            <span style={{ color:t.primary, fontWeight:600 }}>{s.cal}kcal</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <input value={fCalInput} onChange={e=>setFCalInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&(addFood(),setFoodSuggestions([]))} placeholder="kcal" type="number" style={{ ...inputStyle, flex:1 }} />
+                  {addBtn(() => { addFood(); setFoodSuggestions([]); })}
                 </div>
                 {/* 즐겨찾기 */}
                 {favorites.length > 0 && (
@@ -803,6 +847,99 @@ export default function App() {
           )}
         </div>
       )}
+
+      {/* ══ 캘린더 ══ */}
+      {tab==="calendar" && (() => {
+        const firstDay = new Date(calYear, calMonth, 1).getDay();
+        const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
+        const weeks = [];
+        let week = Array(firstDay).fill(null);
+        for (let d = 1; d <= daysInMonth; d++) {
+          week.push(d);
+          if (week.length === 7) { weeks.push(week); week = []; }
+        }
+        if (week.length > 0) { while (week.length < 7) week.push(null); weeks.push(week); }
+
+        const monthNames = ["1월","2월","3월","4월","5월","6월","7월","8월","9월","10월","11월","12월"];
+        const prevMonth = () => { if (calMonth === 0) { setCalYear(calYear-1); setCalMonth(11); } else setCalMonth(calMonth-1); setSelectedDate(null); };
+        const nextMonth = () => { if (calMonth === 11) { setCalYear(calYear+1); setCalMonth(0); } else setCalMonth(calMonth+1); setSelectedDate(null); };
+
+        const selDS = selectedDate ? `${calYear}-${String(calMonth+1).padStart(2,"0")}-${String(selectedDate).padStart(2,"0")}` : null;
+        const selData = selDS ? (dailyLog[selDS] || { food:[], water:0, exercise:[] }) : null;
+        const selWeight = selDS ? weightLog.find(w => w.date === selDS) : null;
+        const selCal = selData ? (selData.food||[]).reduce((s,f) => s+(f.cal||0), 0) : 0;
+
+        return (
+          <div style={{ flex:1, overflowY:"auto", padding:16, background:t.bg, display:"flex", flexDirection:"column", gap:14 }}>
+            <div className="slide-up" style={card}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
+                <button onClick={prevMonth} style={{ border:"none", background:"none", fontSize:20, cursor:"pointer", color:t.text }}>‹</button>
+                <div style={{ fontWeight:700, fontSize:16, color:t.text }}>{calYear}년 {monthNames[calMonth]}</div>
+                <button onClick={nextMonth} style={{ border:"none", background:"none", fontSize:20, cursor:"pointer", color:t.text }}>›</button>
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:2, marginBottom:4 }}>
+                {["일","월","화","수","목","금","토"].map(d => (
+                  <div key={d} style={{ textAlign:"center", fontSize:11, color:t.textMuted, padding:4 }}>{d}</div>
+                ))}
+              </div>
+              {weeks.map((week, wi) => (
+                <div key={wi} style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:2 }}>
+                  {week.map((day, di) => {
+                    if (!day) return <div key={di} />;
+                    const ds = `${calYear}-${String(calMonth+1).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
+                    const dl = dailyLog[ds] || {};
+                    const hasFood = (dl.food||[]).length > 0;
+                    const hasEx = (dl.exercise||[]).length > 0;
+                    const hasW = weightLog.some(w => w.date === ds);
+                    const isToday = ds === todayStr();
+                    const isSelected = day === selectedDate;
+                    const hasSomething = hasFood || hasEx || hasW;
+                    return (
+                      <div key={di} onClick={() => setSelectedDate(day === selectedDate ? null : day)}
+                        style={{ textAlign:"center", padding:"6px 2px", borderRadius:10, cursor:"pointer", position:"relative",
+                          background: isSelected ? t.primary : isToday ? t.tagBg : "transparent",
+                          color: isSelected ? "#fff" : isToday ? t.primary : t.text,
+                          fontWeight: isToday || isSelected ? 700 : 400, fontSize:13, transition:"all 0.2s" }}>
+                        {day}
+                        {hasSomething && !isSelected && (
+                          <div style={{ display:"flex", gap:1, justifyContent:"center", marginTop:2 }}>
+                            {hasFood && <div style={{ width:4, height:4, borderRadius:"50%", background:"#f59e0b" }} />}
+                            {hasEx && <div style={{ width:4, height:4, borderRadius:"50%", background:t.primary }} />}
+                            {hasW && <div style={{ width:4, height:4, borderRadius:"50%", background:"#3b82f6" }} />}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+              <div style={{ display:"flex", gap:12, justifyContent:"center", marginTop:8, fontSize:11, color:t.textMuted }}>
+                <span><span style={{ display:"inline-block", width:8, height:8, borderRadius:"50%", background:"#f59e0b", marginRight:3 }}/>음식</span>
+                <span><span style={{ display:"inline-block", width:8, height:8, borderRadius:"50%", background:t.primary, marginRight:3 }}/>운동</span>
+                <span><span style={{ display:"inline-block", width:8, height:8, borderRadius:"50%", background:"#3b82f6", marginRight:3 }}/>체중</span>
+              </div>
+            </div>
+
+            {selectedDate && selData && (
+              <div className="fade-in" style={card}>
+                <div style={{ fontWeight:600, fontSize:15, color:t.primary, marginBottom:10 }}>
+                  📋 {calMonth+1}/{selectedDate} 기록
+                </div>
+                {selWeight && (
+                  <div style={{ fontSize:13, color:t.text, marginBottom:6 }}>⚖️ 체중: <b>{selWeight.kg}kg</b></div>
+                )}
+                <div style={{ fontSize:13, color:t.text, marginBottom:6 }}>
+                  🍽️ 음식: {selData.food.length > 0 ? selData.food.map(f => `${f.name||f}${f.cal?` ${f.cal}kcal`:""}`).join(", ") : "기록 없음"}
+                  {selCal > 0 && <span style={{ color:t.primary, fontWeight:600 }}> (총 {selCal}kcal)</span>}
+                </div>
+                <div style={{ fontSize:13, color:t.text, marginBottom:6 }}>💧 수분: {selData.water||0}ml</div>
+                <div style={{ fontSize:13, color:t.text }}>🏃 운동: {selData.exercise.length > 0 ? selData.exercise.join(", ") : "기록 없음"}</div>
+              </div>
+            )}
+            <div style={{ height:20 }} />
+          </div>
+        );
+      })()}
 
       {/* ══ 통계 ══ */}
       {tab==="stats" && (
