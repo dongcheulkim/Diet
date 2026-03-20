@@ -185,6 +185,7 @@ const ANIM_STYLE = `
 @keyframes pulse { 0%,100% { transform:scale(1); } 50% { transform:scale(1.05); } }
 @keyframes dots { 0%,20% { content:'·'; } 40% { content:'··'; } 60%,100% { content:'···'; } }
 @keyframes shimmer { 0% { background-position:-200px 0; } 100% { background-position:200px 0; } }
+@keyframes spin { from { transform:rotate(0deg); } to { transform:rotate(360deg); } }
 .fade-in { animation: fadeIn 0.3s ease-out; }
 .slide-up { animation: slideUp 0.4s ease-out; }
 .skeleton {
@@ -312,6 +313,41 @@ export default function App() {
   const motivation = MOTIVATION[new Date().getDay() % MOTIVATION.length];
 
   useEffect(() => { save("darkMode", dark); }, [dark]);
+
+  // ── 풀 투 리프레시 ──
+  const [pullY, setPullY] = useState(0);
+  const [pulling, setPulling] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const touchStartY = useRef(0);
+
+  function onTouchStart(e) {
+    const el = e.currentTarget;
+    if (el.scrollTop <= 0) {
+      touchStartY.current = e.touches[0].clientY;
+      setPulling(true);
+    }
+  }
+  function onTouchMove(e) {
+    if (!pulling) return;
+    const diff = e.touches[0].clientY - touchStartY.current;
+    if (diff > 0) {
+      setPullY(Math.min(diff * 0.4, 80));
+    }
+  }
+  function onTouchEnd() {
+    if (pullY > 60) {
+      setRefreshing(true);
+      setPullY(50);
+      syncFromSupabase(setWeightLog, setDailyLog, setGoalWeight, setHeight).finally(() => {
+        setRefreshing(false);
+        setPullY(0);
+        setPulling(false);
+      });
+    } else {
+      setPullY(0);
+      setPulling(false);
+    }
+  }
 
   // ── 채팅 ──
   const [msgs, setMsgs] = useState([
@@ -592,8 +628,15 @@ export default function App() {
   const card = { background:t.card, borderRadius:16, padding:16, boxShadow:`0 1px 4px ${t.shadow}`, marginBottom:0, transition:"all 0.3s" };
 
   return (
-    <div style={{ display:"flex", flexDirection:"column", height:"100vh", maxWidth:480, margin:"0 auto", fontFamily:"'Apple SD Gothic Neo','Noto Sans KR',sans-serif", background:t.bg, transition:"background 0.3s" }}>
+    <div style={{ display:"flex", flexDirection:"column", height:"100vh", maxWidth:480, margin:"0 auto", fontFamily:"'Apple SD Gothic Neo','Noto Sans KR',sans-serif", background:t.bg, transition:"background 0.3s", overflow:"hidden" }}>
       <style>{ANIM_STYLE.replace(/var\(--skeleton-from\)/g, t.skeletonFrom).replace(/var\(--skeleton-to\)/g, t.skeletonTo)}</style>
+
+      {/* 풀 투 리프레시 인디케이터 */}
+      {pullY > 0 && (
+        <div style={{ height:pullY, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, transition: pulling ? "none" : "height 0.3s" }}>
+          <span style={{ fontSize:20, transform:`rotate(${refreshing ? 360 : pullY * 3}deg)`, transition: refreshing ? "transform 0.5s linear" : "none", animation: refreshing ? "spin 0.8s linear infinite" : "none" }}>🔄</span>
+        </div>
+      )}
 
       {/* 헤더 */}
       <div style={{ background:t.headerBg, padding:"12px 18px", flexShrink:0, transition:"background 0.3s" }}>
@@ -624,7 +667,7 @@ export default function App() {
       {/* ══ 채팅 ══ */}
       {tab==="chat" && (
         <>
-          <div style={{ flex:1, overflowY:"auto", padding:16, display:"flex", flexDirection:"column", gap:10, background:t.bg, transition:"background 0.3s" }}>
+          <div onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd} style={{ flex:1, overflowY:"auto", padding:16, display:"flex", flexDirection:"column", gap:10, background:t.bg, transition:"background 0.3s" }}>
             {msgs.map((m,i) => (
               <div key={i} className="fade-in" style={{ display:"flex", justifyContent:m.role==="user"?"flex-end":"flex-start", alignItems:"flex-end", gap:8 }}>
                 {m.role==="assistant" && <div style={{ width:28, height:28, borderRadius:"50%", background:t.primary, display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, flexShrink:0 }}>🥗</div>}
@@ -676,7 +719,7 @@ export default function App() {
 
       {/* ══ 기록 ══ */}
       {tab==="record" && (
-        <div style={{ flex:1, overflowY:"auto", padding:16, background:t.bg, display:"flex", flexDirection:"column", gap:14, transition:"background 0.3s" }}>
+        <div onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd} style={{ flex:1, overflowY:"auto", padding:16, background:t.bg, display:"flex", flexDirection:"column", gap:14, transition:"background 0.3s" }}>
 
           {syncing ? (
             <>
@@ -870,7 +913,7 @@ export default function App() {
         const selCal = selData ? (selData.food||[]).reduce((s,f) => s+(f.cal||0), 0) : 0;
 
         return (
-          <div style={{ flex:1, overflowY:"auto", padding:16, background:t.bg, display:"flex", flexDirection:"column", gap:14 }}>
+          <div onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd} style={{ flex:1, overflowY:"auto", padding:16, background:t.bg, display:"flex", flexDirection:"column", gap:14 }}>
             <div className="slide-up" style={card}>
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
                 <button onClick={prevMonth} style={{ border:"none", background:"none", fontSize:20, cursor:"pointer", color:t.text }}>‹</button>
@@ -943,7 +986,7 @@ export default function App() {
 
       {/* ══ 통계 ══ */}
       {tab==="stats" && (
-        <div style={{ flex:1, overflowY:"auto", padding:16, background:t.bg, display:"flex", flexDirection:"column", gap:14, transition:"background 0.3s" }}>
+        <div onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd} style={{ flex:1, overflowY:"auto", padding:16, background:t.bg, display:"flex", flexDirection:"column", gap:14, transition:"background 0.3s" }}>
 
           {syncing ? (
             <>
@@ -1079,7 +1122,7 @@ export default function App() {
 
       {/* ══ 주간 리포트 ══ */}
       {tab==="weekly" && (
-        <div style={{ flex:1, overflowY:"auto", padding:16, background:t.bg, display:"flex", flexDirection:"column", gap:14, transition:"background 0.3s" }}>
+        <div onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd} style={{ flex:1, overflowY:"auto", padding:16, background:t.bg, display:"flex", flexDirection:"column", gap:14, transition:"background 0.3s" }}>
           <div className="slide-up" style={card}>
             <div style={{ fontWeight:600, fontSize:15, color:t.primary, marginBottom:6 }}>📊 지난 7일 요약</div>
             {Array.from({length:7}).map((_,i) => {
