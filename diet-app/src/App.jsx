@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 
 const SUPA_URL = import.meta.env.VITE_SUPABASE_URL || "https://ncglsgerqoawmrwbfkpo.supabase.co";
-const SUPA_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "sb_publishable_7d0XbBC2nIgCC22JCsGOuw_8_V9xhgT";
+const SUPA_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5jZ2xzZ2VycW9hd21yd2Jma3BvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM5MjYxMDUsImV4cCI6MjA4OTUwMjEwNX0.5Xez4yEadMMdp7f7oushd7Rp1j0vbAtqHFANbLbi8WA";
 
 let _userId = "";
 function setUserId(id) { _userId = id; }
