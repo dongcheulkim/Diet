@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 
 const SUPA_URL = import.meta.env.VITE_SUPABASE_URL || "https://ncglsgerqoawmrwbfkpo.supabase.co";
-const SUPA_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
+const SUPA_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "sb_publishable_7d0XbBC2nIgCC22JCsGOuw_8_V9xhgT";
 
 let _userId = "";
 function setUserId(id) { _userId = id; }
@@ -480,7 +480,7 @@ export default function App() {
       sbUpsert("daily_log", { date: td, food: newData.food||[], water: newData.water||0, exercise: newData.exercise||[] });
       return updated;
     });
-  }, [td]);
+  }, [td, userId]);
 
   function addWeight() {
     const kg = parseFloat(wInput);
