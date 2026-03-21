@@ -17,8 +17,9 @@ async function sbGet(table, filters="") {
 }
 
 async function sbUpsert(table, data) {
+  const conflicts = table === "user_settings" ? "user_id" : "user_id,date";
   try {
-    const res = await fetch(`${SUPA_URL}/rest/v1/${table}`, {
+    const res = await fetch(`${SUPA_URL}/rest/v1/${table}?on_conflict=${conflicts}`, {
       method: "POST",
       headers: {
         "apikey": SUPA_KEY,
