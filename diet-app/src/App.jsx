@@ -211,12 +211,8 @@ async function syncFromSupabase(setWeightLog, setDailyLog, setGoalWeight, setHei
         if (!local) {
           merged[d.date] = remote;
         } else {
-          // 로컬에 더 많은 데이터가 있으면 로컬 유지
-          merged[d.date] = {
-            food: local.food.length >= remote.food.length ? local.food : remote.food,
-            water: Math.max(local.water||0, remote.water||0),
-            exercise: local.exercise.length >= remote.exercise.length ? local.exercise : remote.exercise,
-          };
+          // 로컬 데이터 우선 (사용자가 수정한 값 유지)
+          merged[d.date] = local;
         }
       });
       save(ukey(uid,"dLog"), merged);
