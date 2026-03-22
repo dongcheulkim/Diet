@@ -181,50 +181,28 @@ const MOTIVATION = [
 ];
 
 const todayStr = () => new Date().toISOString().slice(0, 10);
+// localStorage는 userId, darkMode, 당일 채팅만 사용
 function load(key, fb) { try { return JSON.parse(localStorage.getItem(key)) ?? fb; } catch { return fb; } }
 function save(key, val) { try { localStorage.setItem(key, JSON.stringify(val)); } catch {} }
-// 유저별 localStorage 키
-function ukey(userId, key) { return userId ? `${userId}_${key}` : key; }
 
-async function syncFromSupabase(setWeightLog, setDailyLog, setGoalWeight, setHeight, uid) {
-  // Supabase에서 가져와서 로컬 데이터와 병합 (로컬 데이터 우선)
+async function fetchFromSupabase(setWeightLog, setDailyLog, setGoalWeight, setHeight) {
   const weights = await sbGet("weight_log", "order=date.asc");
-  if (weights && weights.length > 0) {
-    setWeightLog(prev => {
-      const merged = [...prev];
-      weights.forEach(w => {
-        if (!merged.find(m => m.date === w.date)) merged.push({ date: w.date, kg: w.kg });
-      });
-      merged.sort((a, b) => a.date.localeCompare(b.date));
-      save(ukey(uid,"wLog"), merged);
-      return merged;
-    });
+  if (weights) {
+    setWeightLog(weights.map(w => ({ date: w.date, kg: w.kg })));
   }
 
   const days = await sbGet("daily_log", "");
-  if (days && days.length > 0) {
-    setDailyLog(prev => {
-      const merged = { ...prev };
-      days.forEach(d => {
-        const local = merged[d.date];
-        const remote = { food: d.food||[], water: d.water||0, exercise: d.exercise||[] };
-        if (!local) {
-          merged[d.date] = remote;
-        } else {
-          // 로컬 데이터 우선 (사용자가 수정한 값 유지)
-          merged[d.date] = local;
-        }
-      });
-      save(ukey(uid,"dLog"), merged);
-      return merged;
-    });
+  if (days) {
+    const dLog = {};
+    days.forEach(d => { dLog[d.date] = { food: d.food||[], water: d.water||0, exercise: d.exercise||[] }; });
+    setDailyLog(dLog);
   }
 
   const settings = await sbGet("user_settings", "");
   if (settings && settings.length > 0) {
     const gw = settings[0].goal_weight; const h = settings[0].height;
-    if (gw) { setGoalWeight(gw); save(ukey(uid,"goal"), gw); }
-    if (h) { setHeight(h); save(ukey(uid,"height"), h); }
+    if (gw) setGoalWeight(gw);
+    if (h) setHeight(h);
   }
 }
 
@@ -378,31 +356,26 @@ export default function App() {
     setUserIdState(null); save("userId", null); setUserId("");
     setWeightLog([]); setDailyLog({}); setGoalWeight(null); setHeight(null);
     setFavorites([]); setChecks(DEFAULT_CHECKLIST.map(()=>false));
-    const defaultLogoutMsgs = [{ role:"assistant", text:"안녕하세요! 저는 다이어트 쌤이에요 🥗" }];
-    setMsgs(defaultLogoutMsgs);
+    setMsgs([{ role:"assistant", text:"안녕하세요! 저는 다이어트 쌤이에요 🥗" }]);
     history.current = [];
   }
 
   function pickUser(name) {
     setUserId(name);
     setUserIdState(name); save("userId", name);
-    // 유저별 로컬 데이터 로드
-    setWeightLog(load(ukey(name,"wLog"), []));
-    setDailyLog(load(ukey(name,"dLog"), {}));
-    setGoalWeight(load(ukey(name,"goal"), null));
-    setHeight(load(ukey(name,"height"), null));
-    setFavorites(load(ukey(name,"favFoods"), []));
-    setChecks(load(ukey(name,"checks_"+new Date().toISOString().slice(0,10)), DEFAULT_CHECKLIST.map(()=>false)));
-    // 채팅 기록 복원 (당일만)
-    const savedDate = load(ukey(name,"msgsDate"), null);
+    // Supabase에서 데이터 로드 (useEffect[userId]에서 처리)
+    // 채팅 기록 복원 (당일만, localStorage)
+    const savedDate = load(`${name}_msgsDate`, null);
     if (savedDate === todayStr()) {
-      setMsgs(load(ukey(name,"msgs"), [{ role:"assistant", text:`${name}님 안녕! 다이어트 쌤이에요 🥗\n뭐 먹었는지, 운동했는지 알려주시면 기록해드릴게요!` }]));
-      history.current = load(ukey(name,"chatHistory"), []);
+      setMsgs(load(`${name}_msgs`, [{ role:"assistant", text:`${name}님 안녕! 다이어트 쌤이에요 🥗\n뭐 먹었는지, 운동했는지 알려주시면 기록해드릴게요!` }]));
+      history.current = load(`${name}_chatHistory`, []);
     } else {
       setMsgs([{ role:"assistant", text:`${name}님 안녕! 다이어트 쌤이에요 🥗\n뭐 먹었는지, 운동했는지 알려주시면 기록해드릴게요!` }]);
       history.current = [];
     }
     // 나머지 초기화
+    setWeightLog([]); setDailyLog({}); setGoalWeight(null); setHeight(null);
+    setFavorites([]); setChecks(DEFAULT_CHECKLIST.map(()=>false));
     setRoutineResult(""); setWeeklyResult(""); setSelectedDate(null);
     setPreview(null); setError(""); setInput(""); setFInput(""); setFCalInput("");
     setWaterInput(""); setExInput(""); setGoalInput(""); setHeightInput("");
@@ -434,7 +407,7 @@ export default function App() {
     if (pullY > 60) {
       setRefreshing(true);
       setPullY(50);
-      syncFromSupabase(setWeightLog, setDailyLog, setGoalWeight, setHeight, userId).finally(() => {
+      fetchFromSupabase(setWeightLog, setDailyLog, setGoalWeight, setHeight).finally(() => {
         setRefreshing(false);
         setPullY(0);
         setPulling(false);
@@ -445,11 +418,11 @@ export default function App() {
     }
   }
 
-  // ── 채팅 (당일만 유지, 자정 넘으면 리셋) ──
+  // ── 채팅 (당일만 유지, 자정 넘으면 리셋, localStorage) ──
   const defaultMsgs = [{ role:"assistant", text:"안녕하세요! 저는 다이어트 쌤이에요 🥗\n식단·운동·체중 뭐든 물어보세요!\n📸 음식 사진 보내면 칼로리 분석도 해드려요!\n\n💡 먹은 것이나 운동을 채팅으로 알려주시면 자동으로 기록해드려요!" }];
   const [msgs, setMsgs] = useState(() => {
-    const saved = load(ukey(userId,"msgs"), null);
-    const savedDate = load(ukey(userId,"msgsDate"), null);
+    const saved = load(`${userId}_msgs`, null);
+    const savedDate = load(`${userId}_msgsDate`, null);
     if (saved && savedDate === todayStr()) return saved;
     return defaultMsgs;
   });
@@ -460,15 +433,15 @@ export default function App() {
   const bottom = useRef(null);
   const fileRef = useRef(null);
   const history = useRef((() => {
-    const savedDate = load(ukey(userId,"chatHistoryDate"), null);
-    if (savedDate === todayStr()) return load(ukey(userId,"chatHistory"), []);
+    const savedDate = load(`${userId}_chatHistoryDate`, null);
+    if (savedDate === todayStr()) return load(`${userId}_chatHistory`, []);
     return [];
   })());
 
-  // ── 기록 ──
-  const [weightLog, setWeightLog] = useState(() => load(ukey(userId,"wLog"), []));
-  const [dailyLog,  setDailyLog]  = useState(() => load(ukey(userId,"dLog"), {}));
-  const [goalWeight, setGoalWeight] = useState(() => load(ukey(userId,"goal"), null));
+  // ── 기록 (Supabase 단독) ──
+  const [weightLog, setWeightLog] = useState([]);
+  const [dailyLog,  setDailyLog]  = useState({});
+  const [goalWeight, setGoalWeight] = useState(null);
   const [wInput, setWInput] = useState("");
   const [fInput, setFInput] = useState("");
   const [fCalInput, setFCalInput] = useState("");
@@ -476,38 +449,38 @@ export default function App() {
   const [exInput, setExInput] = useState("");
   const [goalInput, setGoalInput] = useState("");
   const [heightInput, setHeightInput] = useState("");
-  const [height, setHeight] = useState(() => load(ukey(userId,"height"), null));
+  const [height, setHeight] = useState(null);
   const [routineResult, setRoutineResult] = useState("");
   const [routineBusy, setRoutineBusy] = useState(false);
   const [syncing, setSyncing] = useState(true);
 
-  // ── 즐겨찾기 ──
-  const [favorites, setFavorites] = useState(() => load(ukey(userId,"favFoods"), []));
+  // ── 즐겨찾기 (localStorage - 유저별) ──
+  const [favorites, setFavorites] = useState(() => load(`${userId}_favFoods`, []));
 
   function addFavorite(name, cal) {
     if (favorites.some(f => f.name === name)) return;
     const updated = [...favorites, { name, cal }];
-    setFavorites(updated); save(ukey(userId,"favFoods"), updated);
+    setFavorites(updated); save(`${userId}_favFoods`, updated);
   }
 
   function removeFavorite(name) {
     const updated = favorites.filter(f => f.name !== name);
-    setFavorites(updated); save(ukey(userId,"favFoods"), updated);
+    setFavorites(updated); save(`${userId}_favFoods`, updated);
   }
 
-  const [checks, setChecks] = useState(() => load(ukey(userId,"checks_"+new Date().toISOString().slice(0,10)), DEFAULT_CHECKLIST.map(()=>false)));
+  const [checks, setChecks] = useState(() => load(`${userId}_checks_${new Date().toISOString().slice(0,10)}`, DEFAULT_CHECKLIST.map(()=>false)));
 
   function saveHeight() {
     const h = parseFloat(heightInput);
     if (!h || h < 100 || h > 250) return;
-    setHeight(h); save(ukey(userId,"height"), h); setHeightInput("");
+    setHeight(h); setHeightInput("");
     sbUpsert("user_settings", { goal_weight: goalWeight||null, height: h });
   }
 
   function toggleCheck(i) {
     const updated = checks.map((c,j) => j===i ? !c : c);
     setChecks(updated);
-    save(ukey(userId,"checks_"+new Date().toISOString().slice(0,10)), updated);
+    save(`${userId}_checks_${new Date().toISOString().slice(0,10)}`, updated);
   }
 
   async function getRoutine() {
@@ -542,19 +515,19 @@ export default function App() {
   useEffect(() => {
     setSyncing(true);
     if (!userId) return;
-    syncFromSupabase(setWeightLog, setDailyLog, setGoalWeight, setHeight, userId).finally(() => setSyncing(false));
+    fetchFromSupabase(setWeightLog, setDailyLog, setGoalWeight, setHeight).finally(() => setSyncing(false));
   }, [userId]);
 
   useEffect(() => {
-    save(ukey(userId,"msgs"), msgs);
-    save(ukey(userId,"msgsDate"), todayStr());
+    save(`${userId}_msgs`, msgs);
+    save(`${userId}_msgsDate`, todayStr());
     bottom.current?.scrollIntoView({ behavior:"smooth" });
   }, [msgs]);
 
-  // history 변경 시 localStorage에 저장
+  // history 변경 시 localStorage에 저장 (채팅만 로컬)
   const saveHistory = () => {
-    save(ukey(userId,"chatHistory"), history.current);
-    save(ukey(userId,"chatHistoryDate"), todayStr());
+    save(`${userId}_chatHistory`, history.current);
+    save(`${userId}_chatHistoryDate`, todayStr());
   };
 
   const td = todayStr();
@@ -566,7 +539,6 @@ export default function App() {
       const current = prev[td] || { food:[], water:0, exercise:[] };
       const newData = { ...current, ...patch };
       const updated = { ...prev, [td]: newData };
-      save(ukey(userId,"dLog"), updated);
       sbUpsert("daily_log", { date: td, food: newData.food||[], water: newData.water||0, exercise: newData.exercise||[] });
       return updated;
     });
@@ -576,14 +548,14 @@ export default function App() {
     const kg = parseFloat(wInput);
     if (!kg || kg < 20 || kg > 300) return;
     const updated = [...weightLog.filter(w => w.date !== td), { date:td, kg }].sort((a,b)=>a.date.localeCompare(b.date));
-    setWeightLog(updated); save(ukey(userId,"wLog"), updated); setWInput("");
+    setWeightLog(updated); setWInput("");
     sbUpsert("weight_log", { date: td, kg });
   }
 
   function saveGoal() {
     const kg = parseFloat(goalInput);
     if (!kg || kg < 20 || kg > 300) return;
-    setGoalWeight(kg); save(ukey(userId,"goal"), kg); setGoalInput("");
+    setGoalWeight(kg); setGoalInput("");
     sbUpsert("user_settings", { goal_weight: kg, height: height||null });
   }
 
