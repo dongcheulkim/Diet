@@ -347,7 +347,8 @@ export default function App() {
     setUserIdState(null); save("userId", null); setUserId("");
     setWeightLog([]); setDailyLog({}); setGoalWeight(null); setHeight(null);
     setFavorites([]); setChecks(DEFAULT_CHECKLIST.map(()=>false));
-    setMsgs([{ role:"assistant", text:"안녕하세요! 저는 다이어트 쌤이에요 🥗" }]);
+    const defaultLogoutMsgs = [{ role:"assistant", text:"안녕하세요! 저는 다이어트 쌤이에요 🥗" }];
+    setMsgs(defaultLogoutMsgs);
     history.current = [];
   }
 
@@ -361,12 +362,14 @@ export default function App() {
     setHeight(load(ukey(name,"height"), null));
     setFavorites(load(ukey(name,"favFoods"), []));
     setChecks(load(ukey(name,"checks_"+new Date().toISOString().slice(0,10)), DEFAULT_CHECKLIST.map(()=>false)));
+    // 채팅 기록 복원
+    const savedMsgs = load(ukey(name,"msgs"), [{ role:"assistant", text:`${name}님 안녕! 다이어트 쌤이에요 🥗\n뭐 먹었는지, 운동했는지 알려주시면 기록해드릴게요!` }]);
+    setMsgs(savedMsgs);
+    history.current = load(ukey(name,"chatHistory"), []);
     // 나머지 초기화
     setRoutineResult(""); setWeeklyResult(""); setSelectedDate(null);
     setPreview(null); setError(""); setInput(""); setFInput(""); setFCalInput("");
     setWaterInput(""); setExInput(""); setGoalInput(""); setHeightInput("");
-    setMsgs([{ role:"assistant", text:`${name}님 안녕! 다이어트 쌤이에요 🥗\n뭐 먹었는지, 운동했는지 알려주시면 기록해드릴게요!` }]);
-    history.current = [];
   }
 
   const DEFAULT_CHECKLIST = ["체중 기록하기 ⚖️","물 2000ml 마시기 💧","운동하기 🏃","야식 안 먹기 🌙","채소 먹기 🥦"];
@@ -407,16 +410,15 @@ export default function App() {
   }
 
   // ── 채팅 ──
-  const [msgs, setMsgs] = useState([
-    { role:"assistant", text:"안녕하세요! 저는 다이어트 쌤이에요 🥗\n식단·운동·체중 뭐든 물어보세요!\n📸 음식 사진 보내면 칼로리 분석도 해드려요!\n\n💡 먹은 것이나 운동을 채팅으로 알려주시면 자동으로 기록해드려요!" }
-  ]);
+  const defaultMsgs = [{ role:"assistant", text:"안녕하세요! 저는 다이어트 쌤이에요 🥗\n식단·운동·체중 뭐든 물어보세요!\n📸 음식 사진 보내면 칼로리 분석도 해드려요!\n\n💡 먹은 것이나 운동을 채팅으로 알려주시면 자동으로 기록해드려요!" }];
+  const [msgs, setMsgs] = useState(() => load(ukey(userId,"msgs"), defaultMsgs));
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [preview, setPreview] = useState(null);
   const bottom = useRef(null);
   const fileRef = useRef(null);
-  const history = useRef([]);
+  const history = useRef(load(ukey(userId,"chatHistory"), []));
 
   // ── 기록 ──
   const [weightLog, setWeightLog] = useState(() => load(ukey(userId,"wLog"), []));
@@ -498,7 +500,13 @@ export default function App() {
     syncFromSupabase(setWeightLog, setDailyLog, setGoalWeight, setHeight, userId).finally(() => setSyncing(false));
   }, [userId]);
 
-  useEffect(() => { bottom.current?.scrollIntoView({ behavior:"smooth" }); }, [msgs]);
+  useEffect(() => {
+    save(ukey(userId,"msgs"), msgs);
+    bottom.current?.scrollIntoView({ behavior:"smooth" });
+  }, [msgs]);
+
+  // history 변경 시 localStorage에 저장
+  const saveHistory = () => save(ukey(userId,"chatHistory"), history.current);
 
   const td = todayStr();
   const todayData = dailyLog[td] || { food:[], water:0, exercise:[] };
@@ -622,6 +630,7 @@ export default function App() {
       : msg || "이 음식 분석해주세요.";
     content.push({ type:"text", text:defaultPrompt });
     history.current.push({ role:"user", content });
+    saveHistory();
     setPreview(null);
     try {
       const res = await fetch("/api/chat", {
@@ -638,6 +647,7 @@ export default function App() {
       const cleanReply = stripAutoRecord(rawReply);
 
       history.current.push({ role:"assistant", content:cleanReply });
+      saveHistory();
 
       let autoRecordMsg = null;
       if (autoRecord) {
