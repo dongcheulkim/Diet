@@ -174,19 +174,41 @@ function save(key, val) { try { localStorage.setItem(key, JSON.stringify(val)); 
 function ukey(userId, key) { return userId ? `${userId}_${key}` : key; }
 
 async function syncFromSupabase(setWeightLog, setDailyLog, setGoalWeight, setHeight, uid) {
-  // Supabase에서 가져오되, 실패하면 로컬 데이터 유지
+  // Supabase에서 가져와서 로컬 데이터와 병합 (로컬 데이터 우선)
   const weights = await sbGet("weight_log", "order=date.asc");
   if (weights && weights.length > 0) {
-    const wLog = weights.map(w => ({ date: w.date, kg: w.kg }));
-    setWeightLog(wLog); save(ukey(uid,"wLog"), wLog);
+    setWeightLog(prev => {
+      const merged = [...prev];
+      weights.forEach(w => {
+        if (!merged.find(m => m.date === w.date)) merged.push({ date: w.date, kg: w.kg });
+      });
+      merged.sort((a, b) => a.date.localeCompare(b.date));
+      save(ukey(uid,"wLog"), merged);
+      return merged;
+    });
   }
-  // weights가 null이면 에러 → 로컬 유지, 빈 배열이면 진짜 없음
 
   const days = await sbGet("daily_log", "");
   if (days && days.length > 0) {
-    const dLog = {};
-    days.forEach(d => { dLog[d.date] = { food: d.food||[], water: d.water||0, exercise: d.exercise||[] }; });
-    setDailyLog(dLog); save(ukey(uid,"dLog"), dLog);
+    setDailyLog(prev => {
+      const merged = { ...prev };
+      days.forEach(d => {
+        const local = merged[d.date];
+        const remote = { food: d.food||[], water: d.water||0, exercise: d.exercise||[] };
+        if (!local) {
+          merged[d.date] = remote;
+        } else {
+          // 로컬에 더 많은 데이터가 있으면 로컬 유지
+          merged[d.date] = {
+            food: local.food.length >= remote.food.length ? local.food : remote.food,
+            water: Math.max(local.water||0, remote.water||0),
+            exercise: local.exercise.length >= remote.exercise.length ? local.exercise : remote.exercise,
+          };
+        }
+      });
+      save(ukey(uid,"dLog"), merged);
+      return merged;
+    });
   }
 
   const settings = await sbGet("user_settings", "");
