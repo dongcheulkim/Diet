@@ -1011,7 +1011,13 @@ export default function App() {
                 <div style={{ background:t.barBg, borderRadius:8, height:10, overflow:"hidden" }}>
                   <div style={{ width:`${Math.min(100,((todayData.water||0)/2000)*100)}%`, background:t.primary, height:"100%", borderRadius:8, transition:"width 0.3s" }} />
                 </div>
-                <div style={{ fontSize:12, color:t.textMuted, marginTop:4 }}>목표 2000ml 중 {todayData.water||0}ml</div>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:4 }}>
+                  <div style={{ fontSize:12, color:t.textMuted }}>목표 2000ml 중 {todayData.water||0}ml</div>
+                  {(todayData.water||0) > 0 && (
+                    <button onClick={()=>updateToday({ water:0 })}
+                      style={{ fontSize:11, color:t.danger, background:"none", border:"none", cursor:"pointer", padding:"2px 6px" }}>초기화</button>
+                  )}
+                </div>
               </div>
 
               {/* 운동 */}
