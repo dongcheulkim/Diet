@@ -616,7 +616,17 @@ export default function App() {
     const currentData = dailyLog[td] || { food:[], water:0, exercise:[] };
     const patch = {};
     if (record.food && record.food.length > 0) {
-      patch.food = [...currentData.food, ...record.food];
+      const updated = [...currentData.food];
+      record.food.forEach(newItem => {
+        const norm = (s) => (s||"").trim().toLowerCase().replace(/\s+/g,"");
+        const idx = updated.findIndex(f => norm(f.name) === norm(newItem.name));
+        if (idx !== -1) {
+          updated[idx] = { ...updated[idx], cal: newItem.cal };
+        } else {
+          updated.push(newItem);
+        }
+      });
+      patch.food = updated;
     }
     if (record.water && record.water > 0) {
       patch.water = (currentData.water || 0) + record.water;
