@@ -185,7 +185,7 @@ const todayStr = () => new Date().toISOString().slice(0, 10);
 function load(key, fb) { try { return JSON.parse(localStorage.getItem(key)) ?? fb; } catch { return fb; } }
 function save(key, val) { try { localStorage.setItem(key, JSON.stringify(val)); } catch {} }
 
-async function fetchFromSupabase(setWeightLog, setDailyLog, setGoalWeight, setHeight) {
+async function fetchFromSupabase(setWeightLog, setDailyLog, setGoalWeight, setHeight, setGoalDeadline) {
   const weights = await sbGet("weight_log", "order=date.asc");
   if (weights) {
     setWeightLog(weights.map(w => ({ date: w.date, kg: w.kg })));
@@ -200,9 +200,10 @@ async function fetchFromSupabase(setWeightLog, setDailyLog, setGoalWeight, setHe
 
   const settings = await sbGet("user_settings", "");
   if (settings && settings.length > 0) {
-    const gw = settings[0].goal_weight; const h = settings[0].height;
+    const gw = settings[0].goal_weight; const h = settings[0].height; const gd = settings[0].goal_deadline;
     if (gw) setGoalWeight(gw);
     if (h) setHeight(h);
+    if (gd) setGoalDeadline(gd);
   }
 }
 
@@ -370,7 +371,7 @@ export default function App() {
 
   function logout() {
     setUserIdState(null); save("userId", null); setUserId("");
-    setWeightLog([]); setDailyLog({}); setGoalWeight(null); setHeight(null);
+    setWeightLog([]); setDailyLog({}); setGoalWeight(null); setGoalDeadline(null); setHeight(null);
     setFavorites([]); setChecks(DEFAULT_CHECKLIST.map(()=>false));
     setMsgs([{ role:"assistant", text:"안녕하세요! 저는 다이어트 쌤이에요 🥗" }]);
     history.current = [];
@@ -390,7 +391,7 @@ export default function App() {
       history.current = [];
     }
     // 나머지 초기화
-    setWeightLog([]); setDailyLog({}); setGoalWeight(null); setHeight(null);
+    setWeightLog([]); setDailyLog({}); setGoalWeight(null); setGoalDeadline(null); setHeight(null);
     setFavorites([]); setChecks(DEFAULT_CHECKLIST.map(()=>false));
     setRoutineResult(""); setWeeklyResult(""); setSelectedDate(null);
     setPreview(null); setError(""); setInput(""); setFInput(""); setFCalInput("");
@@ -423,7 +424,7 @@ export default function App() {
     if (pullY > 60) {
       setRefreshing(true);
       setPullY(50);
-      fetchFromSupabase(setWeightLog, setDailyLog, setGoalWeight, setHeight).finally(() => {
+      fetchFromSupabase(setWeightLog, setDailyLog, setGoalWeight, setHeight, setGoalDeadline).finally(() => {
         setRefreshing(false);
         setPullY(0);
         setPulling(false);
@@ -458,6 +459,8 @@ export default function App() {
   const [weightLog, setWeightLog] = useState([]);
   const [dailyLog,  setDailyLog]  = useState({});
   const [goalWeight, setGoalWeight] = useState(null);
+  const [goalDeadline, setGoalDeadline] = useState(null);
+  const [deadlineInput, setDeadlineInput] = useState("");
   const [wInput, setWInput] = useState("");
   const [fInput, setFInput] = useState("");
   const [fCalInput, setFCalInput] = useState("");
@@ -582,7 +585,7 @@ export default function App() {
   useEffect(() => {
     setSyncing(true);
     if (!userId) return;
-    fetchFromSupabase(setWeightLog, setDailyLog, setGoalWeight, setHeight).finally(() => setSyncing(false));
+    fetchFromSupabase(setWeightLog, setDailyLog, setGoalWeight, setHeight, setGoalDeadline).finally(() => setSyncing(false));
   }, [userId]);
 
   useEffect(() => {
@@ -611,6 +614,74 @@ export default function App() {
   const burnedCal = parseExCal(todayData.exercise);
   const netCal = totalCal - burnedCal;
 
+  // ── 연속 기록 스트릭 ──
+  function calcStreak() {
+    let streak = 0;
+    const d = new Date();
+    for (let i = 0; i < 365; i++) {
+      const ds = d.toISOString().slice(0, 10);
+      const dl = dailyLog[ds] || {};
+      const hasRecord = (dl.food||[]).length > 0 || (dl.exercise||[]).length > 0 || (dl.water||0) > 0 || weightLog.some(w => w.date === ds);
+      if (hasRecord) streak++;
+      else if (i > 0) break; // 오늘은 아직 기록 안 해도 어제부터 체크
+      else { d.setDate(d.getDate() - 1); continue; }
+      d.setDate(d.getDate() - 1);
+    }
+    return streak;
+  }
+  const streak = calcStreak();
+
+  // ── 영양소 추정 (간단 매크로) ──
+  const MACRO_DB = {
+    "밥":{p:5,c:65,f:1},"공기밥":{p:5,c:65,f:1},"현미밥":{p:6,c:63,f:2},"잡곡밥":{p:6,c:63,f:2},
+    "김치찌개":{p:12,c:8,f:6},"된장찌개":{p:10,c:8,f:4},"순두부찌개":{p:14,c:6,f:8},
+    "라면":{p:10,c:70,f:16},"신라면":{p:10,c:70,f:16},"컵라면":{p:7,c:48,f:10},
+    "김밥":{p:12,c:55,f:10},"떡볶이":{p:8,c:75,f:10},
+    "삼겹살":{p:30,c:0,f:40},"목살":{p:28,c:0,f:30},"불고기":{p:30,c:15,f:15},
+    "치킨":{p:50,c:25,f:40},"후라이드치킨":{p:50,c:25,f:40},"양념치킨":{p:45,c:35,f:38},
+    "비빔밥":{p:15,c:70,f:12},"제육볶음":{p:25,c:15,f:25},
+    "돈까스":{p:25,c:45,f:30},"돈가스":{p:25,c:45,f:30},
+    "삼계탕":{p:55,c:30,f:35},"설렁탕":{p:25,c:5,f:20},
+    "계란":{p:6,c:1,f:5},"달걀":{p:6,c:1,f:5},"계란프라이":{p:6,c:1,f:8},"삶은계란":{p:6,c:1,f:5},
+    "두부":{p:8,c:2,f:4},"샐러드":{p:3,c:10,f:3},"닭가슴살":{p:31,c:0,f:3},
+    "고구마":{p:2,c:30,f:0},"바나나":{p:1,c:23,f:0},"사과":{p:0,c:21,f:0},
+    "아메리카노":{p:0,c:1,f:0},"카페라떼":{p:5,c:10,f:5},
+    "우유":{p:6,c:10,f:6},"두유":{p:7,c:8,f:3},
+    "맥주":{p:1,c:13,f:0},"소주":{p:0,c:0,f:0},
+    "빵":{p:8,c:45,f:8},"식빵":{p:6,c:30,f:4},"크로와상":{p:5,c:30,f:18},
+    "짜장면":{p:15,c:80,f:20},"짬뽕":{p:18,c:55,f:15},"탕수육":{p:25,c:60,f:35},
+    "파스타":{p:15,c:65,f:18},"스파게티":{p:15,c:65,f:18},"카르보나라":{p:18,c:60,f:28},
+    "초밥":{p:15,c:55,f:8},"연어":{p:20,c:0,f:12},"참치":{p:25,c:0,f:5},
+    "요거트":{p:4,c:15,f:2},"그릭요거트":{p:10,c:8,f:5},"프로틴":{p:24,c:3,f:1},
+  };
+
+  function estimateMacros(foods) {
+    let p = 0, c = 0, f = 0;
+    (foods || []).forEach(food => {
+      const name = (food.name||"").trim().toLowerCase().replace(/\s+/g,"");
+      let matched = null;
+      for (const [key, macro] of Object.entries(MACRO_DB)) {
+        if (name === key.replace(/\s+/g,"") || name.includes(key.replace(/\s+/g,"")) || key.replace(/\s+/g,"").includes(name)) {
+          matched = macro; break;
+        }
+      }
+      if (matched) {
+        const ratio = (food.cal || 0) / ((matched.p*4 + matched.c*4 + matched.f*9) || 1);
+        p += Math.round(matched.p * ratio);
+        c += Math.round(matched.c * ratio);
+        f += Math.round(matched.f * ratio);
+      } else if (food.cal) {
+        // 알 수 없는 음식: 대략 4:5:3 비율로 추정
+        const cal = food.cal;
+        p += Math.round(cal * 0.15 / 4);
+        c += Math.round(cal * 0.55 / 4);
+        f += Math.round(cal * 0.30 / 9);
+      }
+    });
+    return { protein: p, carbs: c, fat: f };
+  }
+  const todayMacros = estimateMacros(todayData.food);
+
   const updateToday = useCallback((patch) => {
     setDailyLog(prev => {
       const current = prev[td] || { food:[], water:0, exercise:[] };
@@ -633,7 +704,13 @@ export default function App() {
     const kg = parseFloat(goalInput);
     if (!kg || kg < 20 || kg > 300) return;
     setGoalWeight(kg); setGoalInput("");
-    sbUpsert("user_settings", { goal_weight: kg, height: height||null });
+    sbUpsert("user_settings", { goal_weight: kg, height: height||null, goal_deadline: goalDeadline||null });
+  }
+
+  function saveDeadline() {
+    if (!deadlineInput) return;
+    setGoalDeadline(deadlineInput); setDeadlineInput("");
+    sbUpsert("user_settings", { goal_weight: goalWeight||null, height: height||null, goal_deadline: deadlineInput });
   }
 
   function addFood(name, cal) {
@@ -976,9 +1053,15 @@ export default function App() {
             </>
           ) : (
             <>
-              {/* 동기부여 */}
-              <div className="slide-up" style={{ background:`linear-gradient(135deg,${t.gradientStart},${t.gradientEnd})`, borderRadius:16, padding:"14px 16px", color:"#fff", fontSize:14, lineHeight:1.6 }}>
-                {motivation}
+              {/* 동기부여 + 스트릭 */}
+              <div className="slide-up" style={{ background:`linear-gradient(135deg,${t.gradientStart},${t.gradientEnd})`, borderRadius:16, padding:"14px 16px", color:"#fff", fontSize:14, lineHeight:1.6, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                <div>{motivation}</div>
+                {streak > 0 && (
+                  <div style={{ textAlign:"center", minWidth:60 }}>
+                    <div style={{ fontSize:24, fontWeight:700 }}>🔥{streak}</div>
+                    <div style={{ fontSize:10, opacity:0.85 }}>일 연속</div>
+                  </div>
+                )}
               </div>
 
               {/* 오늘 목표 체크리스트 */}
@@ -1054,6 +1137,44 @@ export default function App() {
                       {latestKg > goalWeight ? `${(latestKg - goalWeight).toFixed(1)}kg 더 빼면 목표 달성!` : "🎉 목표 달성!"}
                     </div>
                   </>
+                )}
+                {/* 목표 기한 */}
+                {goalWeight && (
+                  <div style={{ marginTop:10, padding:"10px 12px", background:t.tagBg, borderRadius:12 }}>
+                    <div style={{ fontSize:12, color:t.textMuted, marginBottom:6 }}>📅 목표 기한</div>
+                    {!goalDeadline ? (
+                      <div style={{ display:"flex", gap:8 }}>
+                        <input type="date" value={deadlineInput} onChange={e=>setDeadlineInput(e.target.value)}
+                          style={{ ...inputStyle, flex:1 }} />
+                        {addBtn(saveDeadline, "설정")}
+                      </div>
+                    ) : (() => {
+                      const today = new Date();
+                      const deadline = new Date(goalDeadline + "T00:00:00");
+                      const daysLeft = Math.ceil((deadline - today) / (1000*60*60*24));
+                      const remaining = latestKg && goalWeight ? (latestKg - goalWeight) : 0;
+                      const pacePerWeek = daysLeft > 0 && remaining > 0 ? (remaining / (daysLeft / 7)).toFixed(1) : 0;
+                      const isOnTrack = pacePerWeek <= 1.0;
+                      return (
+                        <div>
+                          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
+                            <span style={{ fontSize:13, color:t.text }}>{goalDeadline}까지</span>
+                            <span style={{ fontSize:13, fontWeight:600, color:daysLeft>0?t.primary:t.danger }}>
+                              {daysLeft > 0 ? `D-${daysLeft}` : daysLeft === 0 ? "D-DAY!" : `D+${Math.abs(daysLeft)}`}
+                            </span>
+                          </div>
+                          {remaining > 0 && daysLeft > 0 && (
+                            <div style={{ fontSize:12, color:isOnTrack?t.primary:t.danger }}>
+                              {isOnTrack ? "✅" : "⚠️"} 주당 {pacePerWeek}kg 감량 필요 {isOnTrack ? "(적정 페이스)" : "(빡센 페이스)"}
+                            </div>
+                          )}
+                          {remaining <= 0 && <div style={{ fontSize:12, color:t.primary }}>🎉 이미 목표 달성!</div>}
+                          <button onClick={()=>{setGoalDeadline(null); sbUpsert("user_settings",{goal_weight:goalWeight,height:height||null,goal_deadline:null});}}
+                            style={{ marginTop:6, fontSize:11, color:t.textMuted, background:"none", border:"none", cursor:"pointer", padding:0, textDecoration:"underline" }}>기한 초기화</button>
+                        </div>
+                      );
+                    })()}
+                  </div>
                 )}
                 {!goalWeight && <div style={{ fontSize:13, color:t.textFaint }}>목표 체중을 설정해보세요!</div>}
               </div>
@@ -1133,6 +1254,35 @@ export default function App() {
                   })}
                   {todayData.food.length===0 && <span style={{ fontSize:13, color:t.textFaint }}>아직 없어요</span>}
                 </div>
+                {/* 영양소 분석 */}
+                {totalCal > 0 && (() => {
+                  const { protein, carbs, fat } = todayMacros;
+                  const totalG = protein + carbs + fat || 1;
+                  return (
+                    <div style={{ marginTop:10, padding:"10px 12px", background:t.tagBg, borderRadius:12 }}>
+                      <div style={{ fontSize:12, color:t.textMuted, marginBottom:6 }}>영양소 추정</div>
+                      <div style={{ display:"flex", gap:8, marginBottom:6 }}>
+                        <div style={{ flex:1, textAlign:"center" }}>
+                          <div style={{ fontSize:16, fontWeight:700, color:"#3b82f6" }}>{protein}g</div>
+                          <div style={{ fontSize:10, color:t.textMuted }}>단백질</div>
+                        </div>
+                        <div style={{ flex:1, textAlign:"center" }}>
+                          <div style={{ fontSize:16, fontWeight:700, color:"#f59e0b" }}>{carbs}g</div>
+                          <div style={{ fontSize:10, color:t.textMuted }}>탄수화물</div>
+                        </div>
+                        <div style={{ flex:1, textAlign:"center" }}>
+                          <div style={{ fontSize:16, fontWeight:700, color:"#ef4444" }}>{fat}g</div>
+                          <div style={{ fontSize:10, color:t.textMuted }}>지방</div>
+                        </div>
+                      </div>
+                      <div style={{ display:"flex", borderRadius:6, overflow:"hidden", height:8 }}>
+                        <div style={{ width:`${(protein/totalG)*100}%`, background:"#3b82f6", transition:"width 0.3s" }} />
+                        <div style={{ width:`${(carbs/totalG)*100}%`, background:"#f59e0b", transition:"width 0.3s" }} />
+                        <div style={{ width:`${(fat/totalG)*100}%`, background:"#ef4444", transition:"width 0.3s" }} />
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* 물 */}
@@ -1291,6 +1441,19 @@ export default function App() {
             </>
           ) : (
             <>
+              {/* 연속 기록 스트릭 */}
+              {streak > 0 && (
+                <div className="slide-up" style={{ ...card, display:"flex", alignItems:"center", gap:14 }}>
+                  <div style={{ fontSize:36 }}>🔥</div>
+                  <div>
+                    <div style={{ fontSize:22, fontWeight:700, color:t.primary }}>{streak}일 연속 기록 중!</div>
+                    <div style={{ fontSize:12, color:t.textMuted }}>
+                      {streak >= 30 ? "한 달 넘게 지속! 대단해요!" : streak >= 14 ? "2주 돌파! 습관이 되어가고 있어요!" : streak >= 7 ? "일주일 달성! 꾸준함이 보여요!" : "좋은 시작이에요! 계속 이어가봐요!"}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* 목표 달성률 */}
               {goalWeight && latestKg && (
                 <div className="slide-up" style={{ ...card, background:`linear-gradient(135deg,${t.gradientStart},${t.gradientEnd})`, color:"#fff" }}>
