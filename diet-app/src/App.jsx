@@ -495,7 +495,7 @@ export default function App() {
     try {
       const res = await fetch("/api/chat", {
         method:"POST", headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({ model:"claude-sonnet-4-6", max_tokens:800, system:SYSTEM, messages:[{role:"user",content:prompt}] }),
+        body:JSON.stringify({ model:"claude-sonnet-4-6-20250514", max_tokens:800, system:SYSTEM, messages:[{role:"user",content:prompt}] }),
       });
       const data = await res.json();
       setRoutineResult(data.content?.[0]?.text || "오류 발생");
@@ -656,7 +656,7 @@ export default function App() {
     try {
       const res = await fetch("/api/chat", {
         method:"POST", headers:{ "Content-Type":"application/json" },
-        body:JSON.stringify({ model:"claude-sonnet-4-6", max_tokens:800, system:SYSTEM + `\n\n[사용자 현황]\n목표 체중: ${goalWeight ? goalWeight+"kg" : "미설정"}\n현재 체중: ${latestKg ? latestKg+"kg" : "미기록"}\n오늘 먹은 것: ${todayData.food.map(f=>f.name||(f+"")).join(", ")||"없음"}\n오늘 칼로리: ${totalCal}kcal\n오늘 수분: ${todayData.water||0}ml\n오늘 운동: ${todayData.exercise.join(", ")||"없음"}\n목표 달성률: ${progress!==null?progress+"%":"계산불가"}\n\n이 정보를 바탕으로 맞춤 조언을 해주세요.`, messages:history.current }),
+        body:JSON.stringify({ model:"claude-sonnet-4-6-20250514", max_tokens:800, system:SYSTEM + `\n\n[사용자 현황]\n목표 체중: ${goalWeight ? goalWeight+"kg" : "미설정"}\n현재 체중: ${latestKg ? latestKg+"kg" : "미기록"}\n오늘 먹은 것: ${todayData.food.map(f=>f.name||(f+"")).join(", ")||"없음"}\n오늘 칼로리: ${totalCal}kcal\n오늘 수분: ${todayData.water||0}ml\n오늘 운동: ${todayData.exercise.join(", ")||"없음"}\n목표 달성률: ${progress!==null?progress+"%":"계산불가"}\n\n이 정보를 바탕으로 맞춤 조언을 해주세요.`, messages:history.current }),
       });
       if (!res.ok) { const e = await res.json(); throw new Error(e?.error?.message||`HTTP ${res.status}`); }
       const data = await res.json();
@@ -701,7 +701,7 @@ export default function App() {
     try {
       const res = await fetch("/api/chat", {
         method:"POST", headers:{ "Content-Type":"application/json" },
-        body:JSON.stringify({ model:"claude-sonnet-4-6", max_tokens:1000, system:SYSTEM, messages:[{ role:"user", content:prompt }] }),
+        body:JSON.stringify({ model:"claude-sonnet-4-6-20250514", max_tokens:1000, system:SYSTEM, messages:[{ role:"user", content:prompt }] }),
       });
       const data = await res.json();
       setWeeklyResult(data.content?.[0]?.text || "오류 발생");
