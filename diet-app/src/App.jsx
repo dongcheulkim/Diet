@@ -185,7 +185,7 @@ const todayStr = () => new Date().toISOString().slice(0, 10);
 function load(key, fb) { try { return JSON.parse(localStorage.getItem(key)) ?? fb; } catch { return fb; } }
 function save(key, val) { try { localStorage.setItem(key, JSON.stringify(val)); } catch {} }
 
-async function fetchFromSupabase(setWeightLog, setDailyLog, setGoalWeight, setHeight, setGoalDeadline) {
+async function fetchFromSupabase(setWeightLog, setDailyLog, setGoalWeight, setHeight) {
   const weights = await sbGet("weight_log", "order=date.asc");
   if (weights) {
     setWeightLog(weights.map(w => ({ date: w.date, kg: w.kg })));
@@ -200,10 +200,9 @@ async function fetchFromSupabase(setWeightLog, setDailyLog, setGoalWeight, setHe
 
   const settings = await sbGet("user_settings", "");
   if (settings && settings.length > 0) {
-    const gw = settings[0].goal_weight; const h = settings[0].height; const gd = settings[0].goal_deadline;
+    const gw = settings[0].goal_weight; const h = settings[0].height;
     if (gw) setGoalWeight(gw);
     if (h) setHeight(h);
-    if (gd) setGoalDeadline(gd);
   }
 }
 
@@ -391,7 +390,7 @@ export default function App() {
       history.current = [];
     }
     // 나머지 초기화
-    setWeightLog([]); setDailyLog({}); setGoalWeight(null); setGoalDeadline(null); setHeight(null);
+    setWeightLog([]); setDailyLog({}); setGoalWeight(null); setGoalDeadline(load(`${name}_goalDeadline`, null)); setHeight(null);
     setFavorites([]); setChecks(DEFAULT_CHECKLIST.map(()=>false));
     setRoutineResult(""); setWeeklyResult(""); setSelectedDate(null);
     setPreview(null); setError(""); setInput(""); setFInput(""); setFCalInput("");
@@ -424,7 +423,7 @@ export default function App() {
     if (pullY > 60) {
       setRefreshing(true);
       setPullY(50);
-      fetchFromSupabase(setWeightLog, setDailyLog, setGoalWeight, setHeight, setGoalDeadline).finally(() => {
+      fetchFromSupabase(setWeightLog, setDailyLog, setGoalWeight, setHeight).finally(() => {
         setRefreshing(false);
         setPullY(0);
         setPulling(false);
@@ -459,7 +458,7 @@ export default function App() {
   const [weightLog, setWeightLog] = useState([]);
   const [dailyLog,  setDailyLog]  = useState({});
   const [goalWeight, setGoalWeight] = useState(null);
-  const [goalDeadline, setGoalDeadline] = useState(null);
+  const [goalDeadline, setGoalDeadline] = useState(() => load(`${userId}_goalDeadline`, null));
   const [deadlineInput, setDeadlineInput] = useState("");
   const [wInput, setWInput] = useState("");
   const [fInput, setFInput] = useState("");
@@ -493,7 +492,7 @@ export default function App() {
     const h = parseFloat(heightInput);
     if (!h || h < 100 || h > 250) return;
     setHeight(h); setHeightInput("");
-    sbUpsert("user_settings", { goal_weight: goalWeight||null, height: h, goal_deadline: goalDeadline||null });
+    sbUpsert("user_settings", { goal_weight: goalWeight||null, height: h });
   }
 
   function toggleCheck(i) {
@@ -593,7 +592,7 @@ export default function App() {
   useEffect(() => {
     setSyncing(true);
     if (!userId) return;
-    fetchFromSupabase(setWeightLog, setDailyLog, setGoalWeight, setHeight, setGoalDeadline).finally(() => setSyncing(false));
+    fetchFromSupabase(setWeightLog, setDailyLog, setGoalWeight, setHeight).finally(() => setSyncing(false));
   }, [userId]);
 
   useEffect(() => {
@@ -725,13 +724,13 @@ export default function App() {
     const kg = parseFloat(goalInput);
     if (!kg || kg < 20 || kg > 300) return;
     setGoalWeight(kg); setGoalInput("");
-    sbUpsert("user_settings", { goal_weight: kg, height: height||null, goal_deadline: goalDeadline||null });
+    sbUpsert("user_settings", { goal_weight: kg, height: height||null });
   }
 
   function saveDeadline() {
     if (!deadlineInput) return;
     setGoalDeadline(deadlineInput); setDeadlineInput("");
-    sbUpsert("user_settings", { goal_weight: goalWeight||null, height: height||null, goal_deadline: deadlineInput });
+    save(`${userId}_goalDeadline`, deadlineInput);
   }
 
   function addFood(name, cal) {
@@ -1189,7 +1188,7 @@ export default function App() {
                             </div>
                           )}
                           {remaining <= 0 && <div style={{ fontSize:12, color:t.primary }}>🎉 이미 목표 달성!</div>}
-                          <button onClick={()=>{setGoalDeadline(null); sbUpsert("user_settings",{goal_weight:goalWeight,height:height||null,goal_deadline:null});}}
+                          <button onClick={()=>{setGoalDeadline(null); save(`${userId}_goalDeadline`, null);}}
                             style={{ marginTop:6, fontSize:11, color:t.textMuted, background:"none", border:"none", cursor:"pointer", padding:0, textDecoration:"underline" }}>기한 초기화</button>
                         </div>
                       );
