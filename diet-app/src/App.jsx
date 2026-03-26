@@ -493,7 +493,7 @@ export default function App() {
     const h = parseFloat(heightInput);
     if (!h || h < 100 || h > 250) return;
     setHeight(h); setHeightInput("");
-    sbUpsert("user_settings", { goal_weight: goalWeight||null, height: h });
+    sbUpsert("user_settings", { goal_weight: goalWeight||null, height: h, goal_deadline: goalDeadline||null });
   }
 
   function toggleCheck(i) {
@@ -545,6 +545,9 @@ export default function App() {
     save(`${userId}_reminders`, updated);
   }
 
+  const dailyLogRef = useRef(dailyLog);
+  useEffect(() => { dailyLogRef.current = dailyLog; }, [dailyLog]);
+
   useEffect(() => {
     reminderTimers.current.forEach(clearInterval);
     reminderTimers.current = [];
@@ -555,7 +558,8 @@ export default function App() {
     const intervalMs = (reminders.waterInterval || 2) * 60 * 60 * 1000;
     const timer = setInterval(() => {
       if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-        const current = (dailyLog[td]||{}).water || 0;
+        const today = todayStr();
+        const current = (dailyLogRef.current[today]||{}).water || 0;
         if (current < 2000) {
           new Notification("💧 물 마시기 알림", { body: `오늘 ${current}ml 마셨어요. 목표 2000ml까지 ${2000-current}ml 남았어요!`, icon: "/icon-192.png" });
         }
@@ -566,12 +570,16 @@ export default function App() {
   }, [userId, reminders.water, reminders.waterInterval]);
 
   // 체중 기록 알림 (매일 아침 9시 체크)
+  const weightLogRef = useRef(weightLog);
+  useEffect(() => { weightLogRef.current = weightLog; }, [weightLog]);
+
   useEffect(() => {
     if (!userId || !reminders.weight) return;
     const check = () => {
       const now = new Date();
       if (now.getHours() >= 8 && now.getHours() <= 10) {
-        const todayWeight = weightLog.find(w => w.date === td);
+        const today = todayStr();
+        const todayWeight = weightLogRef.current.find(w => w.date === today);
         if (!todayWeight && typeof Notification !== "undefined" && Notification.permission === "granted") {
           new Notification("⚖️ 체중 기록 알림", { body: "오늘 체중을 아직 기록하지 않았어요!", icon: "/icon-192.png" });
         }
@@ -580,7 +588,7 @@ export default function App() {
     const timer = setInterval(check, 30 * 60 * 1000);
     check();
     return () => clearInterval(timer);
-  }, [userId, reminders.weight, weightLog, td]);
+  }, [userId, reminders.weight]);
 
   useEffect(() => {
     setSyncing(true);
@@ -618,13 +626,26 @@ export default function App() {
   function calcStreak() {
     let streak = 0;
     const d = new Date();
+    // 오늘 기록이 없으면 어제부터 시작
+    const todayDs = d.toISOString().slice(0, 10);
+    const todayDl = dailyLog[todayDs] || {};
+    const todayHasRecord = (todayDl.food||[]).length > 0 || (todayDl.exercise||[]).length > 0 || (todayDl.water||0) > 0 || weightLog.some(w => w.date === todayDs);
+    if (todayHasRecord) {
+      streak = 1;
+    } else {
+      d.setDate(d.getDate() - 1);
+    }
+    // 이전 날짜들 체크
+    if (!todayHasRecord) {
+      // 어제부터 체크 시작
+    }
     for (let i = 0; i < 365; i++) {
+      if (todayHasRecord && i === 0) { d.setDate(d.getDate() - 1); continue; }
       const ds = d.toISOString().slice(0, 10);
       const dl = dailyLog[ds] || {};
       const hasRecord = (dl.food||[]).length > 0 || (dl.exercise||[]).length > 0 || (dl.water||0) > 0 || weightLog.some(w => w.date === ds);
       if (hasRecord) streak++;
-      else if (i > 0) break; // 오늘은 아직 기록 안 해도 어제부터 체크
-      else { d.setDate(d.getDate() - 1); continue; }
+      else break;
       d.setDate(d.getDate() - 1);
     }
     return streak;
@@ -886,7 +907,6 @@ export default function App() {
   // ── 월간 리포트 ──
   async function getMonthly() {
     setMonthlyBusy(true); setMonthlyResult("");
-    const lines = [];
     const now = new Date();
     const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
     let totalCalMonth = 0, totalWater = 0, exDays = 0, recordedDays = 0;
