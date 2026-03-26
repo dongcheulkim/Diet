@@ -632,7 +632,17 @@ export default function App() {
       patch.water = (currentData.water || 0) + record.water;
     }
     if (record.exercise && record.exercise.length > 0) {
-      patch.exercise = [...currentData.exercise, ...record.exercise];
+      const updated = [...currentData.exercise];
+      record.exercise.forEach(newEx => {
+        const norm = (s) => (s||"").trim().toLowerCase().replace(/\s+/g,"").replace(/\(.*?\)/g,"");
+        const idx = updated.findIndex(ex => norm(ex) === norm(newEx));
+        if (idx !== -1) {
+          updated[idx] = newEx;
+        } else {
+          updated.push(newEx);
+        }
+      });
+      patch.exercise = updated;
     }
     if (Object.keys(patch).length > 0) {
       updateToday(patch);
