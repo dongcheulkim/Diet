@@ -283,26 +283,42 @@ function WeightGraph({ weightLog, t }) {
       체중을 2개 이상 기록하면 그래프가 나와요!
     </div>
   );
-  const recent = weightLog.slice(-10);
+  const recent = weightLog.slice(-14);
   const kgs = recent.map(w => w.kg);
-  const min = Math.min(...kgs) - 1;
-  const max = Math.max(...kgs) + 1;
-  const W = 300, H = 120, pad = 10;
-  const x = (i) => pad + (i / (recent.length - 1)) * (W - pad * 2);
-  const y = (kg) => H - pad - ((kg - min) / (max - min)) * (H - pad * 2);
+  const min = Math.min(...kgs) - 0.5;
+  const max = Math.max(...kgs) + 0.5;
+  const diff = recent.length > 1 ? (recent[recent.length-1].kg - recent[0].kg).toFixed(1) : 0;
+  const W = 300, H = 140, padX = 10, padTop = 15, padBot = 22;
+  const x = (i) => padX + (i / (recent.length - 1)) * (W - padX * 2);
+  const y = (kg) => padTop + ((max - kg) / (max - min)) * (H - padTop - padBot);
   const points = recent.map((w, i) => `${x(i)},${y(w.kg)}`).join(" ");
+  const areaPoints = `${x(0)},${H - padBot} ${points} ${x(recent.length-1)},${H - padBot}`;
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} style={{ width:"100%", height:H }}>
-      <polyline fill="none" stroke={t.primary} strokeWidth="2.5" strokeLinejoin="round" points={points} />
-      {recent.map((w, i) => (
-        <g key={i}>
-          <circle cx={x(i)} cy={y(w.kg)} r="4" fill={t.primary} />
-          <text x={x(i)} y={y(w.kg) - 8} textAnchor="middle" fontSize="10" fill={t.primary} fontWeight="600">{w.kg}</text>
-        </g>
-      ))}
-      <text x={pad} y={H - 2} fontSize="9" fill={t.textFaint}>{recent[0]?.date?.slice(5)}</text>
-      <text x={W - pad} y={H - 2} textAnchor="end" fontSize="9" fill={t.textFaint}>{recent[recent.length-1]?.date?.slice(5)}</text>
-    </svg>
+    <div>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
+        <span style={{ fontSize:12, color:t.textMuted }}>최근 {recent.length}일</span>
+        <span style={{ fontSize:13, fontWeight:600, color:diff<=0?t.primary:t.danger }}>{diff>0?"+":""}{diff}kg</span>
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width:"100%", height:H }}>
+        <defs>
+          <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={t.primary} stopOpacity="0.25" />
+            <stop offset="100%" stopColor={t.primary} stopOpacity="0.02" />
+          </linearGradient>
+        </defs>
+        <polygon fill="url(#areaGrad)" points={areaPoints} />
+        <polyline fill="none" stroke={t.primary} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" points={points} />
+        {recent.map((w, i) => (
+          <g key={i}>
+            <circle cx={x(i)} cy={y(w.kg)} r="3.5" fill={t.primary} />
+            <text x={x(i)} y={y(w.kg) - 8} textAnchor="middle" fontSize="9" fill={t.primary} fontWeight="600">{w.kg}</text>
+            {(i === 0 || i === recent.length - 1 || i % Math.ceil(recent.length / 5) === 0) && (
+              <text x={x(i)} y={H - 4} textAnchor="middle" fontSize="8" fill={t.textFaint}>{w.date.slice(5)}</text>
+            )}
+          </g>
+        ))}
+      </svg>
+    </div>
   );
 }
 
@@ -512,6 +528,57 @@ export default function App() {
   const [weeklyResult, setWeeklyResult] = useState("");
   const [weeklyBusy, setWeeklyBusy] = useState(false);
 
+  // ── 월간 리포트 ──
+  const [monthlyResult, setMonthlyResult] = useState("");
+  const [monthlyBusy, setMonthlyBusy] = useState(false);
+
+  // ── 알림/리마인더 ──
+  const [reminders, setReminders] = useState(() => load(`${userId}_reminders`, { water: true, weight: true, waterInterval: 2 }));
+  const reminderTimers = useRef([]);
+
+  function updateReminders(patch) {
+    const updated = { ...reminders, ...patch };
+    setReminders(updated);
+    save(`${userId}_reminders`, updated);
+  }
+
+  useEffect(() => {
+    reminderTimers.current.forEach(clearInterval);
+    reminderTimers.current = [];
+    if (!userId || !reminders.water) return;
+    if (typeof Notification !== "undefined" && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+    const intervalMs = (reminders.waterInterval || 2) * 60 * 60 * 1000;
+    const timer = setInterval(() => {
+      if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+        const current = (dailyLog[td]||{}).water || 0;
+        if (current < 2000) {
+          new Notification("💧 물 마시기 알림", { body: `오늘 ${current}ml 마셨어요. 목표 2000ml까지 ${2000-current}ml 남았어요!`, icon: "/icon-192.png" });
+        }
+      }
+    }, intervalMs);
+    reminderTimers.current.push(timer);
+    return () => reminderTimers.current.forEach(clearInterval);
+  }, [userId, reminders.water, reminders.waterInterval]);
+
+  // 체중 기록 알림 (매일 아침 9시 체크)
+  useEffect(() => {
+    if (!userId || !reminders.weight) return;
+    const check = () => {
+      const now = new Date();
+      if (now.getHours() >= 8 && now.getHours() <= 10) {
+        const todayWeight = weightLog.find(w => w.date === td);
+        if (!todayWeight && typeof Notification !== "undefined" && Notification.permission === "granted") {
+          new Notification("⚖️ 체중 기록 알림", { body: "오늘 체중을 아직 기록하지 않았어요!", icon: "/icon-192.png" });
+        }
+      }
+    };
+    const timer = setInterval(check, 30 * 60 * 1000);
+    check();
+    return () => clearInterval(timer);
+  }, [userId, reminders.weight, weightLog, td]);
+
   useEffect(() => {
     setSyncing(true);
     if (!userId) return;
@@ -533,6 +600,16 @@ export default function App() {
   const td = todayStr();
   const todayData = dailyLog[td] || { food:[], water:0, exercise:[] };
   const totalCal = (todayData.food || []).reduce((sum, f) => sum + (f.cal || 0), 0);
+
+  // 운동 소모 칼로리 파싱: "크로스핏 WOD (-350kcal)" → 350
+  function parseExCal(exercises) {
+    return (exercises || []).reduce((sum, ex) => {
+      const m = ex.match(/[-\u2212](\d+)\s*kcal/i);
+      return sum + (m ? parseInt(m[1]) : 0);
+    }, 0);
+  }
+  const burnedCal = parseExCal(todayData.exercise);
+  const netCal = totalCal - burnedCal;
 
   const updateToday = useCallback((patch) => {
     setDailyLog(prev => {
@@ -729,6 +806,42 @@ export default function App() {
     setWeeklyBusy(false);
   }
 
+  // ── 월간 리포트 ──
+  async function getMonthly() {
+    setMonthlyBusy(true); setMonthlyResult("");
+    const lines = [];
+    const now = new Date();
+    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    let totalCalMonth = 0, totalWater = 0, exDays = 0, recordedDays = 0;
+    for (let i = 1; i <= daysInMonth; i++) {
+      const ds = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(i).padStart(2,"0")}`;
+      const dl = dailyLog[ds] || {};
+      const w = weightLog.find(x => x.date === ds);
+      const cal = (dl.food||[]).reduce((s,f) => s+(f.cal||0), 0);
+      if (cal > 0 || (dl.exercise||[]).length > 0 || w) recordedDays++;
+      totalCalMonth += cal;
+      totalWater += (dl.water||0);
+      if ((dl.exercise||[]).length > 0) exDays++;
+    }
+    const monthWeights = weightLog.filter(w => w.date.startsWith(`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`));
+    const summary = `이번 달 요약:
+- 기록한 날: ${recordedDays}일 / ${daysInMonth}일
+- 총 섭취 칼로리: ${totalCalMonth}kcal (일평균 ${recordedDays>0?Math.round(totalCalMonth/recordedDays):0}kcal)
+- 총 수분: ${totalWater}ml (일평균 ${recordedDays>0?Math.round(totalWater/recordedDays):0}ml)
+- 운동한 날: ${exDays}일
+- 체중 변화: ${monthWeights.length>=2 ? `${monthWeights[0].kg}kg → ${monthWeights[monthWeights.length-1].kg}kg (${(monthWeights[monthWeights.length-1].kg - monthWeights[0].kg).toFixed(1)}kg)` : "데이터 부족"}`;
+    const prompt = `이번 달(${now.getMonth()+1}월) 월간 리포트를 작성해주세요.\n\n${summary}\n\n1. 한 달 전체 평가\n2. 잘한 점 3가지\n3. 개선할 점 3가지\n4. 다음 달 목표 제안\n\n이모지 사용해서 읽기 쉽게 작성해주세요!`;
+    try {
+      const res = await fetch("/api/chat", {
+        method:"POST", headers:{ "Content-Type":"application/json" },
+        body:JSON.stringify({ model:"claude-sonnet-4-6-20250514", max_tokens:1200, system:SYSTEM, messages:[{ role:"user", content:prompt }] }),
+      });
+      const data = await res.json();
+      setMonthlyResult(data.content?.[0]?.text || "오류 발생");
+    } catch(e) { setMonthlyResult("오류: "+e.message); }
+    setMonthlyBusy(false);
+  }
+
   const inputStyle = { padding:"9px 12px", borderRadius:20, border:`1.5px solid ${t.primaryBorder}`, background:t.inputBg, fontSize:13, outline:"none", color:t.text, transition:"all 0.2s" };
   const addBtn = (onClick, label="추가") => (
     <button onClick={onClick} style={{ padding:"9px 16px", borderRadius:20, border:"none", background:t.primary, color:"#fff", fontSize:13, fontWeight:500, cursor:"pointer", flexShrink:0, transition:"all 0.2s" }}>{label}</button>
@@ -885,6 +998,42 @@ export default function App() {
                 </div>
               </div>
 
+              {/* 알림 설정 */}
+              <div className="slide-up" style={card}>
+                <div style={{ fontWeight:600, fontSize:15, color:t.primary, marginBottom:10 }}>🔔 알림 설정</div>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"8px 0", borderBottom:`1px solid ${t.border}` }}>
+                  <div>
+                    <div style={{ fontSize:14, color:t.text }}>💧 물 마시기 알림</div>
+                    <div style={{ fontSize:11, color:t.textMuted }}>{reminders.waterInterval||2}시간마다 알림</div>
+                  </div>
+                  <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                    {reminders.water && (
+                      <select value={reminders.waterInterval||2} onChange={e=>updateReminders({waterInterval:parseInt(e.target.value)})}
+                        style={{ padding:"4px 6px", borderRadius:8, border:`1px solid ${t.border}`, background:t.inputBg, color:t.text, fontSize:12 }}>
+                        <option value={1}>1시간</option><option value={2}>2시간</option><option value={3}>3시간</option>
+                      </select>
+                    )}
+                    <button onClick={()=>{updateReminders({water:!reminders.water}); if(!reminders.water && typeof Notification!=="undefined" && Notification.permission==="default") Notification.requestPermission();}}
+                      style={{ width:44, height:24, borderRadius:12, border:"none", background:reminders.water?t.primary:t.barBg, cursor:"pointer", position:"relative", transition:"all 0.2s" }}>
+                      <div style={{ width:20, height:20, borderRadius:10, background:"#fff", position:"absolute", top:2, left:reminders.water?22:2, transition:"left 0.2s", boxShadow:"0 1px 3px rgba(0,0,0,0.2)" }} />
+                    </button>
+                  </div>
+                </div>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"8px 0" }}>
+                  <div>
+                    <div style={{ fontSize:14, color:t.text }}>⚖️ 체중 기록 알림</div>
+                    <div style={{ fontSize:11, color:t.textMuted }}>아침에 체중 미기록시 알림</div>
+                  </div>
+                  <button onClick={()=>{updateReminders({weight:!reminders.weight}); if(!reminders.weight && typeof Notification!=="undefined" && Notification.permission==="default") Notification.requestPermission();}}
+                    style={{ width:44, height:24, borderRadius:12, border:"none", background:reminders.weight?t.primary:t.barBg, cursor:"pointer", position:"relative", transition:"all 0.2s" }}>
+                    <div style={{ width:20, height:20, borderRadius:10, background:"#fff", position:"absolute", top:2, left:reminders.weight?22:2, transition:"left 0.2s", boxShadow:"0 1px 3px rgba(0,0,0,0.2)" }} />
+                  </button>
+                </div>
+                {typeof Notification !== "undefined" && Notification.permission === "denied" && (
+                  <div style={{ fontSize:11, color:t.danger, marginTop:4 }}>⚠️ 브라우저 알림이 차단되어 있어요. 설정에서 허용해주세요.</div>
+                )}
+              </div>
+
               {/* 목표 체중 */}
               <div className="slide-up" style={card}>
                 <div style={{ fontWeight:600, fontSize:15, color:t.primary, marginBottom:10 }}>🎯 목표 체중</div>
@@ -929,8 +1078,11 @@ export default function App() {
               <div className="slide-up" style={card}>
                 <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
                   <div style={{ fontWeight:600, fontSize:15, color:t.primary }}>🍽️ 오늘 먹은 것</div>
-                  <div style={{ background:t.tagBg, border:`1.5px solid ${t.primary}`, borderRadius:12, padding:"3px 10px", fontSize:13, fontWeight:700, color:t.primary }}>
-                    총 {totalCal} kcal
+                  <div style={{ display:"flex", gap:6, alignItems:"center" }}>
+                    {burnedCal > 0 && <div style={{ background:t.tagBg, border:`1.5px solid ${t.danger}`, borderRadius:12, padding:"3px 8px", fontSize:11, fontWeight:600, color:t.danger }}>-{burnedCal}</div>}
+                    <div style={{ background:t.tagBg, border:`1.5px solid ${t.primary}`, borderRadius:12, padding:"3px 10px", fontSize:13, fontWeight:700, color:burnedCal>0?t.primary:t.primary }}>
+                      {burnedCal > 0 ? `순 ${netCal}` : `총 ${totalCal}`} kcal
+                    </div>
                   </div>
                 </div>
                 <div style={{ display:"flex", gap:6, marginBottom:4 }}>
@@ -1010,7 +1162,10 @@ export default function App() {
 
               {/* 운동 */}
               <div className="slide-up" style={card}>
-                <div style={{ fontWeight:600, fontSize:15, color:t.primary, marginBottom:10 }}>🏃 오늘 운동</div>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+                  <div style={{ fontWeight:600, fontSize:15, color:t.primary }}>🏃 오늘 운동</div>
+                  {burnedCal > 0 && <div style={{ background:t.tagBg, border:`1.5px solid ${t.danger}`, borderRadius:12, padding:"3px 10px", fontSize:13, fontWeight:700, color:t.danger }}>🔥 -{burnedCal} kcal</div>}
+                </div>
                 <div style={{ display:"flex", gap:8, marginBottom:10 }}>
                   <input value={exInput} onChange={e=>setExInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addEx()} placeholder="예) 걷기 30분, 스쿼트 30개" style={{ ...inputStyle, flex:1 }} />
                   {addBtn(() => addEx())}
@@ -1289,6 +1444,57 @@ export default function App() {
           {weeklyResult && (
             <div className="fade-in" style={{ ...card, fontSize:14, lineHeight:1.8, whiteSpace:"pre-wrap", color:t.text }}>
               {weeklyResult}
+            </div>
+          )}
+
+          {/* 월간 리포트 */}
+          <div className="slide-up" style={card}>
+            <div style={{ fontWeight:600, fontSize:15, color:t.primary, marginBottom:6 }}>📅 이번 달 요약</div>
+            {(() => {
+              const now = new Date();
+              const daysInMonth = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
+              let mCal=0, mWater=0, mExDays=0, mRecDays=0;
+              for (let i=1; i<=daysInMonth; i++) {
+                const ds = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(i).padStart(2,"0")}`;
+                const dl = dailyLog[ds]||{};
+                const cal = (dl.food||[]).reduce((s,f)=>s+(f.cal||0),0);
+                const w = weightLog.find(x=>x.date===ds);
+                if (cal>0||(dl.exercise||[]).length>0||w) mRecDays++;
+                mCal+=cal; mWater+=(dl.water||0);
+                if ((dl.exercise||[]).length>0) mExDays++;
+              }
+              const mWeights = weightLog.filter(w=>w.date.startsWith(`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`));
+              return (
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+                  <div style={{ background:t.tagBg, borderRadius:12, padding:"10px 12px", textAlign:"center" }}>
+                    <div style={{ fontSize:11, color:t.textMuted }}>기록한 날</div>
+                    <div style={{ fontSize:18, fontWeight:700, color:t.primary }}>{mRecDays}<span style={{ fontSize:12, fontWeight:400 }}>/{daysInMonth}일</span></div>
+                  </div>
+                  <div style={{ background:t.tagBg, borderRadius:12, padding:"10px 12px", textAlign:"center" }}>
+                    <div style={{ fontSize:11, color:t.textMuted }}>일평균 칼로리</div>
+                    <div style={{ fontSize:18, fontWeight:700, color:t.primary }}>{mRecDays>0?Math.round(mCal/mRecDays):0}<span style={{ fontSize:12, fontWeight:400 }}>kcal</span></div>
+                  </div>
+                  <div style={{ background:t.tagBg, borderRadius:12, padding:"10px 12px", textAlign:"center" }}>
+                    <div style={{ fontSize:11, color:t.textMuted }}>운동한 날</div>
+                    <div style={{ fontSize:18, fontWeight:700, color:t.primary }}>{mExDays}<span style={{ fontSize:12, fontWeight:400 }}>일</span></div>
+                  </div>
+                  <div style={{ background:t.tagBg, borderRadius:12, padding:"10px 12px", textAlign:"center" }}>
+                    <div style={{ fontSize:11, color:t.textMuted }}>체중 변화</div>
+                    <div style={{ fontSize:18, fontWeight:700, color:mWeights.length>=2?(mWeights[mWeights.length-1].kg-mWeights[0].kg)<=0?t.primary:t.danger:t.textMuted }}>
+                      {mWeights.length>=2?`${(mWeights[mWeights.length-1].kg-mWeights[0].kg)>0?"+":""}${(mWeights[mWeights.length-1].kg-mWeights[0].kg).toFixed(1)}`:"-"}<span style={{ fontSize:12, fontWeight:400 }}>kg</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+          <button onClick={getMonthly} disabled={monthlyBusy}
+            style={{ padding:"14px", borderRadius:16, border:"none", background:monthlyBusy?t.primaryLight:t.primary, color:monthlyBusy?t.primaryBorder:"#fff", fontSize:15, fontWeight:600, cursor:"pointer", transition:"all 0.2s" }}>
+            {monthlyBusy?"분석 중... 🥗":"📅 AI 월간 리포트 받기"}
+          </button>
+          {monthlyResult && (
+            <div className="fade-in" style={{ ...card, fontSize:14, lineHeight:1.8, whiteSpace:"pre-wrap", color:t.text }}>
+              {monthlyResult}
             </div>
           )}
           <div style={{ height:20 }} />
