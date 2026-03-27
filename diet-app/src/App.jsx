@@ -350,6 +350,8 @@ function stripAutoRecord(text) {
   return text.replace(/\n?```auto_record[\s\S]*?```\n?/g, "").trim();
 }
 
+const DEFAULT_CHECKLIST = ["체중 기록하기 ⚖️","물 2000ml 마시기 💧","운동하기 🏃","야식 안 먹기 🌙","채소 먹기 🥦"];
+
 export default function App() {
   const [userId, setUserIdState] = useState(() => load("userId", null));
   const [nickInput, setNickInput] = useState("");
@@ -397,8 +399,6 @@ export default function App() {
     setWaterInput(""); setExInput(""); setGoalInput(""); setHeightInput("");
   }
 
-  const DEFAULT_CHECKLIST = ["체중 기록하기 ⚖️","물 2000ml 마시기 💧","운동하기 🏃","야식 안 먹기 🌙","채소 먹기 🥦"];
-
   // ── 풀 투 리프레시 ──
   const [pullY, setPullY] = useState(0);
   const [pulling, setPulling] = useState(false);
@@ -437,6 +437,7 @@ export default function App() {
   // ── 채팅 (당일만 유지, 자정 넘으면 리셋, localStorage) ──
   const defaultMsgs = [{ role:"assistant", text:"안녕하세요! 저는 다이어트 쌤이에요 🥗\n식단·운동·체중 뭐든 물어보세요!\n📸 음식 사진 보내면 칼로리 분석도 해드려요!\n\n💡 먹은 것이나 운동을 채팅으로 알려주시면 자동으로 기록해드려요!" }];
   const [msgs, setMsgs] = useState(() => {
+    if (!userId) return defaultMsgs;
     const saved = load(`${userId}_msgs`, null);
     const savedDate = load(`${userId}_msgsDate`, null);
     if (saved && savedDate === todayStr()) return saved;
@@ -449,6 +450,7 @@ export default function App() {
   const bottom = useRef(null);
   const fileRef = useRef(null);
   const history = useRef((() => {
+    if (!userId) return [];
     const savedDate = load(`${userId}_chatHistoryDate`, null);
     if (savedDate === todayStr()) return load(`${userId}_chatHistory`, []);
     return [];
@@ -458,7 +460,7 @@ export default function App() {
   const [weightLog, setWeightLog] = useState([]);
   const [dailyLog,  setDailyLog]  = useState({});
   const [goalWeight, setGoalWeight] = useState(null);
-  const [goalDeadline, setGoalDeadline] = useState(() => load(`${userId}_goalDeadline`, null));
+  const [goalDeadline, setGoalDeadline] = useState(() => userId ? load(`${userId}_goalDeadline`, null) : null);
   const [deadlineInput, setDeadlineInput] = useState("");
   const [wInput, setWInput] = useState("");
   const [fInput, setFInput] = useState("");
@@ -473,20 +475,20 @@ export default function App() {
   const [syncing, setSyncing] = useState(true);
 
   // ── 즐겨찾기 (localStorage - 유저별) ──
-  const [favorites, setFavorites] = useState(() => load(`${userId}_favFoods`, []));
+  const [favorites, setFavorites] = useState(() => userId ? load(`${userId}_favFoods`, []) : []);
 
   function addFavorite(name, cal) {
     if (favorites.some(f => f.name === name)) return;
     const updated = [...favorites, { name, cal }];
-    setFavorites(updated); save(`${userId}_favFoods`, updated);
+    setFavorites(updated); if (userId) save(`${userId}_favFoods`, updated);
   }
 
   function removeFavorite(name) {
     const updated = favorites.filter(f => f.name !== name);
-    setFavorites(updated); save(`${userId}_favFoods`, updated);
+    setFavorites(updated); if (userId) save(`${userId}_favFoods`, updated);
   }
 
-  const [checks, setChecks] = useState(() => load(`${userId}_checks_${new Date().toISOString().slice(0,10)}`, DEFAULT_CHECKLIST.map(()=>false)));
+  const [checks, setChecks] = useState(() => userId ? load(`${userId}_checks_${new Date().toISOString().slice(0,10)}`, DEFAULT_CHECKLIST.map(()=>false)) : DEFAULT_CHECKLIST.map(()=>false));
 
   function saveHeight() {
     const h = parseFloat(heightInput);
@@ -535,7 +537,7 @@ export default function App() {
   const [monthlyBusy, setMonthlyBusy] = useState(false);
 
   // ── 알림/리마인더 ──
-  const [reminders, setReminders] = useState(() => load(`${userId}_reminders`, { water: true, weight: true, waterInterval: 2 }));
+  const [reminders, setReminders] = useState(() => userId ? load(`${userId}_reminders`, { water: true, weight: true, waterInterval: 2 }) : { water: true, weight: true, waterInterval: 2 });
   const reminderTimers = useRef([]);
 
   function updateReminders(patch) {
@@ -845,12 +847,24 @@ export default function App() {
       : msg || "이 음식 분석해주세요.";
     content.push({ type:"text", text:defaultPrompt });
     history.current.push({ role:"user", content });
+    // 히스토리 크기 제한: 최근 20턴만 유지, 오래된 이미지 base64 제거
+    if (history.current.length > 40) history.current = history.current.slice(-40);
+    const trimmedHistory = history.current.map(h => {
+      if (Array.isArray(h.content)) {
+        return { ...h, content: h.content.map(c => c.type === "image" ? { type:"text", text:"[이전에 보낸 이미지]" } : c) };
+      }
+      return h;
+    });
+    // 최신 메시지의 이미지는 유지
+    if (trimmedHistory.length > 0 && Array.isArray(history.current[history.current.length-1].content)) {
+      trimmedHistory[trimmedHistory.length-1] = history.current[history.current.length-1];
+    }
     saveHistory();
     setPreview(null);
     try {
       const res = await fetch("/api/chat", {
         method:"POST", headers:{ "Content-Type":"application/json" },
-        body:JSON.stringify({ model:"claude-sonnet-4-6", max_tokens:800, system:SYSTEM + `\n\n[사용자 현황]\n목표 체중: ${goalWeight ? goalWeight+"kg" : "미설정"}\n현재 체중: ${latestKg ? latestKg+"kg" : "미기록"}\n오늘 먹은 것: ${todayData.food.map(f=>f.name||(f+"")).join(", ")||"없음"}\n오늘 칼로리: ${totalCal}kcal\n오늘 수분: ${todayData.water||0}ml\n오늘 운동: ${todayData.exercise.join(", ")||"없음"}\n목표 달성률: ${progress!==null?progress+"%":"계산불가"}\n\n이 정보를 바탕으로 맞춤 조언을 해주세요.`, messages:history.current }),
+        body:JSON.stringify({ model:"claude-sonnet-4-6", max_tokens:800, system:SYSTEM + `\n\n[사용자 현황]\n목표 체중: ${goalWeight ? goalWeight+"kg" : "미설정"}\n현재 체중: ${latestKg ? latestKg+"kg" : "미기록"}\n오늘 먹은 것: ${todayData.food.map(f=>f.name||(f+"")).join(", ")||"없음"}\n오늘 칼로리: ${totalCal}kcal\n오늘 수분: ${todayData.water||0}ml\n오늘 운동: ${todayData.exercise.join(", ")||"없음"}\n목표 달성률: ${progress!==null?progress+"%":"계산불가"}\n\n이 정보를 바탕으로 맞춤 조언을 해주세요.`, messages:trimmedHistory }),
       });
       if (!res.ok) { const e = await res.json(); throw new Error(e?.error?.message||`HTTP ${res.status}`); }
       const data = await res.json();
