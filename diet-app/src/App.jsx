@@ -906,8 +906,10 @@ export default function App() {
   async function getWeekly() {
     setWeeklyBusy(true); setWeeklyResult("");
     const lines = [];
-    for (let i=6; i>=0; i--) {
-      const d = new Date(); d.setDate(d.getDate()-i);
+    const today = new Date();
+    const dayOfWeek = (today.getDay() + 6) % 7;
+    for (let i=0; i<7; i++) {
+      const d = new Date(); d.setDate(today.getDate() - dayOfWeek + i);
       const ds = d.toISOString().slice(0,10);
       const w  = weightLog.find(x=>x.date===ds);
       const dl = dailyLog[ds] || {};
@@ -1380,7 +1382,8 @@ export default function App() {
 
       {/* ══ 캘린더 ══ */}
       {tab==="calendar" && (() => {
-        const firstDay = new Date(calYear, calMonth, 1).getDay();
+        const firstDaySun = new Date(calYear, calMonth, 1).getDay();
+        const firstDay = (firstDaySun + 6) % 7; // 월요일=0
         const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
         const weeks = [];
         let week = Array(firstDay).fill(null);
@@ -1408,7 +1411,7 @@ export default function App() {
                 <button onClick={nextMonth} style={{ border:"none", background:"none", fontSize:20, cursor:"pointer", color:t.text }}>›</button>
               </div>
               <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:2, marginBottom:4 }}>
-                {["일","월","화","수","목","금","토"].map(d => (
+                {["월","화","수","목","금","토","일"].map(d => (
                   <div key={d} style={{ textAlign:"center", fontSize:11, color:t.textMuted, padding:4 }}>{d}</div>
                 ))}
               </div>
@@ -1575,12 +1578,14 @@ export default function App() {
               <div className="slide-up" style={card}>
                 <div style={{ fontWeight:600, fontSize:15, color:t.primary, marginBottom:10 }}>🔥 이번주 칼로리</div>
                 {Array.from({length:7}).map((_,i) => {
-                  const d = new Date(); d.setDate(d.getDate()-(6-i));
+                  const today = new Date();
+                  const dayOfWeek = (today.getDay() + 6) % 7; // 월=0,화=1,...일=6
+                  const d = new Date(); d.setDate(today.getDate() - dayOfWeek + i);
                   const ds = d.toISOString().slice(0,10);
                   const dl = dailyLog[ds]||{};
                   const cal = (dl.food||[]).reduce((s,f)=>s+(f.cal||0),0);
                   const pct = Math.min(100, (cal/2000)*100);
-                  const label = ["일","월","화","수","목","금","토"][d.getDay()];
+                  const label = ["월","화","수","목","금","토","일"][i];
                   return (
                     <div key={i} style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
                       <div style={{ width:20, fontSize:12, color:t.textMuted, textAlign:"center" }}>{label}</div>
@@ -1598,11 +1603,13 @@ export default function App() {
                 <div style={{ fontWeight:600, fontSize:15, color:t.primary, marginBottom:10 }}>🏃 이번주 운동 현황</div>
                 <div style={{ display:"flex", gap:6, justifyContent:"space-between" }}>
                   {Array.from({length:7}).map((_,i) => {
-                    const d = new Date(); d.setDate(d.getDate()-(6-i));
+                    const today = new Date();
+                    const dayOfWeek = (today.getDay() + 6) % 7;
+                    const d = new Date(); d.setDate(today.getDate() - dayOfWeek + i);
                     const ds = d.toISOString().slice(0,10);
                     const dl = dailyLog[ds]||{};
                     const did = (dl.exercise||[]).length > 0;
-                    const label = ["일","월","화","수","목","금","토"][d.getDay()];
+                    const label = ["월","화","수","목","금","토","일"][i];
                     return (
                       <div key={i} style={{ flex:1, textAlign:"center" }}>
                         <div style={{ width:"100%", aspectRatio:"1", borderRadius:8, background:did?t.primary:t.barBg, display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, marginBottom:4, color:"#fff", transition:"all 0.2s" }}>
@@ -1626,7 +1633,9 @@ export default function App() {
           <div className="slide-up" style={card}>
             <div style={{ fontWeight:600, fontSize:15, color:t.primary, marginBottom:6 }}>📊 지난 7일 요약</div>
             {Array.from({length:7}).map((_,i) => {
-              const d = new Date(); d.setDate(d.getDate()-(6-i));
+              const today = new Date();
+              const dayOfWeek = (today.getDay() + 6) % 7;
+              const d = new Date(); d.setDate(today.getDate() - dayOfWeek + i);
               const ds = d.toISOString().slice(0,10);
               const w  = weightLog.find(x=>x.date===ds);
               const dl = dailyLog[ds]||{};
