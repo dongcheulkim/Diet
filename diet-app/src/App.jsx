@@ -598,14 +598,23 @@ export default function App() {
   }, [userId]);
 
   useEffect(() => {
-    save(`${userId}_msgs`, msgs);
-    save(`${userId}_msgsDate`, todayStr());
+    if (userId) {
+      save(`${userId}_msgs`, msgs);
+      save(`${userId}_msgsDate`, todayStr());
+    }
     bottom.current?.scrollIntoView({ behavior:"smooth" });
   }, [msgs]);
 
-  // history 변경 시 localStorage에 저장 (채팅만 로컬)
+  // history 변경 시 localStorage에 저장 (채팅만 로컬, 이미지 제외)
   const saveHistory = () => {
-    save(`${userId}_chatHistory`, history.current);
+    if (!userId) return;
+    const stripped = history.current.map(h => {
+      if (Array.isArray(h.content)) {
+        return { ...h, content: h.content.filter(c => c.type !== "image") };
+      }
+      return h;
+    });
+    save(`${userId}_chatHistory`, stripped);
     save(`${userId}_chatHistoryDate`, todayStr());
   };
 
@@ -1157,7 +1166,7 @@ export default function App() {
                   <input value={goalInput} onChange={e=>setGoalInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&saveGoal()} placeholder="목표 체중 (kg)" type="number" style={{ ...inputStyle, flex:1 }} />
                   {addBtn(saveGoal, "설정")}
                 </div>
-                {goalWeight && latestKg && (
+                {goalWeight && latestKg && progress !== null && (
                   <>
                     <div style={{ display:"flex", justifyContent:"space-between", fontSize:13, marginBottom:6 }}>
                       <span style={{ color:t.textSub }}>현재 {latestKg}kg → 목표 {goalWeight}kg</span>

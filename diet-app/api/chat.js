@@ -13,6 +13,15 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: { message: "API key not configured" } });
   }
 
+  // 입력 검증: 허용된 모델과 max_tokens 제한
+  const { model, max_tokens } = req.body || {};
+  if (!model || !model.startsWith("claude-")) {
+    return res.status(400).json({ error: { message: "Invalid model" } });
+  }
+  if (max_tokens && max_tokens > 2000) {
+    req.body.max_tokens = 2000;
+  }
+
   try {
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
