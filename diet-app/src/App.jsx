@@ -393,7 +393,7 @@ export default function App() {
     }
     // 나머지 초기화
     setWeightLog([]); setDailyLog({}); setGoalWeight(null); setGoalDeadline(load(`${name}_goalDeadline`, null)); setHeight(null);
-    setFavorites([]); setChecks(DEFAULT_CHECKLIST.map(()=>false));
+    setFavorites(load(`${name}_favFoods`, [])); setChecks(load(`${name}_checks_${todayStr()}`, DEFAULT_CHECKLIST.map(()=>false)));
     setRoutineResult(""); setWeeklyResult(""); setSelectedDate(null);
     setPreview(null); setError(""); setInput(""); setFInput(""); setFCalInput("");
     setWaterInput(""); setExInput(""); setGoalInput(""); setHeightInput("");
@@ -500,7 +500,7 @@ export default function App() {
   function toggleCheck(i) {
     const updated = checks.map((c,j) => j===i ? !c : c);
     setChecks(updated);
-    save(`${userId}_checks_${new Date().toISOString().slice(0,10)}`, updated);
+    if (userId) save(`${userId}_checks_${new Date().toISOString().slice(0,10)}`, updated);
   }
 
   async function getRoutine() {
@@ -543,7 +543,7 @@ export default function App() {
   function updateReminders(patch) {
     const updated = { ...reminders, ...patch };
     setReminders(updated);
-    save(`${userId}_reminders`, updated);
+    if (userId) save(`${userId}_reminders`, updated);
   }
 
   const dailyLogRef = useRef(dailyLog);
@@ -592,8 +592,8 @@ export default function App() {
   }, [userId, reminders.weight]);
 
   useEffect(() => {
+    if (!userId) { setSyncing(false); return; }
     setSyncing(true);
-    if (!userId) return;
     fetchFromSupabase(setWeightLog, setDailyLog, setGoalWeight, setHeight).finally(() => setSyncing(false));
   }, [userId]);
 
