@@ -618,27 +618,23 @@ export default function App() {
 
   // ── 연속 기록 스트릭 ──
   function calcStreak() {
+    const hasAny = (ds) => {
+      const dl = dailyLog[ds] || {};
+      return (dl.food||[]).length > 0 || (dl.exercise||[]).length > 0 || (dl.water||0) > 0 || weightLog.some(w => w.date === ds);
+    };
     let streak = 0;
     const d = new Date();
-    // 오늘 기록이 없으면 어제부터 시작
     const todayDs = d.toISOString().slice(0, 10);
-    const todayDl = dailyLog[todayDs] || {};
-    const todayHasRecord = (todayDl.food||[]).length > 0 || (todayDl.exercise||[]).length > 0 || (todayDl.water||0) > 0 || weightLog.some(w => w.date === todayDs);
-    if (todayHasRecord) {
+    if (hasAny(todayDs)) {
       streak = 1;
     } else {
       d.setDate(d.getDate() - 1);
     }
-    // 이전 날짜들 체크
-    if (!todayHasRecord) {
-      // 어제부터 체크 시작
-    }
+    // 이전 날짜들 연속 체크
     for (let i = 0; i < 365; i++) {
-      if (todayHasRecord && i === 0) { d.setDate(d.getDate() - 1); continue; }
+      if (streak > 0 && i === 0) { d.setDate(d.getDate() - 1); }
       const ds = d.toISOString().slice(0, 10);
-      const dl = dailyLog[ds] || {};
-      const hasRecord = (dl.food||[]).length > 0 || (dl.exercise||[]).length > 0 || (dl.water||0) > 0 || weightLog.some(w => w.date === ds);
-      if (hasRecord) streak++;
+      if (hasAny(ds)) streak++;
       else break;
       d.setDate(d.getDate() - 1);
     }
@@ -697,9 +693,10 @@ export default function App() {
   }
   const todayMacros = estimateMacros(todayData.food);
 
-  const updateToday = useCallback((patch) => {
+  const updateToday = useCallback((patchOrFn) => {
     setDailyLog(prev => {
       const current = prev[td] || { food:[], water:0, exercise:[] };
+      const patch = typeof patchOrFn === "function" ? patchOrFn(current) : patchOrFn;
       const newData = { ...current, ...patch };
       const updated = { ...prev, [td]: newData };
       sbUpsert("daily_log", { date: td, food: newData.food||[], water: newData.water||0, exercise: newData.exercise||[] });
@@ -732,12 +729,40 @@ export default function App() {
     const foodName = name || fInput.trim();
     if (!foodName) return;
     const foodCal = cal ?? (parseInt(fCalInput) || estimateCalories(foodName) || 0);
-    updateToday({ food:[...todayData.food, { name: foodName, cal: foodCal }] });
+    setDailyLog(prev => {
+      const current = prev[td] || { food:[], water:0, exercise:[] };
+      const newData = { ...current, food: [...current.food, { name: foodName, cal: foodCal }] };
+      const updated = { ...prev, [td]: newData };
+      sbUpsert("daily_log", { date: td, food: newData.food, water: newData.water||0, exercise: newData.exercise||[] });
+      return updated;
+    });
     if (!name) { setFInput(""); setFCalInput(""); }
   }
 
-  function addWater(ml) { const amount = ml || parseInt(waterInput) || 200; updateToday({ water:(todayData.water||0)+amount }); if (!ml) setWaterInput(""); }
-  function addEx(ex) { const name = ex || exInput.trim(); if (!name) return; updateToday({ exercise:[...todayData.exercise, name] }); if (!ex) setExInput(""); }
+  function addWater(ml) {
+    const amount = ml || parseInt(waterInput) || 200;
+    setDailyLog(prev => {
+      const current = prev[td] || { food:[], water:0, exercise:[] };
+      const newData = { ...current, water: (current.water||0) + amount };
+      const updated = { ...prev, [td]: newData };
+      sbUpsert("daily_log", { date: td, food: newData.food||[], water: newData.water, exercise: newData.exercise||[] });
+      return updated;
+    });
+    if (!ml) setWaterInput("");
+  }
+
+  function addEx(ex) {
+    const name = ex || exInput.trim();
+    if (!name) return;
+    setDailyLog(prev => {
+      const current = prev[td] || { food:[], water:0, exercise:[] };
+      const newData = { ...current, exercise: [...current.exercise, name] };
+      const updated = { ...prev, [td]: newData };
+      sbUpsert("daily_log", { date: td, food: newData.food||[], water: newData.water||0, exercise: newData.exercise });
+      return updated;
+    });
+    if (!ex) setExInput("");
+  }
 
   // 음식 자동완성
   const [foodSuggestions, setFoodSuggestions] = useState([]);
@@ -752,9 +777,10 @@ export default function App() {
         .map(([name, cal]) => ({ name, cal }));
       setFoodSuggestions(matches);
       const est = estimateCalories(val);
-      if (est && !fCalInput) setFCalInput(String(est));
+      if (est) setFCalInput(String(est));
     } else {
       setFoodSuggestions([]);
+      setFCalInput("");
     }
   }
 
@@ -782,40 +808,46 @@ export default function App() {
   // ── 자동 기록 적용 ──
   function applyAutoRecord(record) {
     if (!record) return;
-    const currentData = dailyLog[td] || { food:[], water:0, exercise:[] };
-    const patch = {};
-    if (record.food && record.food.length > 0) {
-      const updated = [...currentData.food];
-      record.food.forEach(newItem => {
-        const norm = (s) => (s||"").trim().toLowerCase().replace(/\s+/g,"");
-        const idx = updated.findIndex(f => norm(f.name) === norm(newItem.name));
-        if (idx !== -1) {
-          updated[idx] = { ...updated[idx], cal: newItem.cal };
-        } else {
-          updated.push(newItem);
-        }
-      });
-      patch.food = updated;
-    }
-    if (record.water && record.water > 0) {
-      patch.water = (currentData.water || 0) + record.water;
-    }
-    if (record.exercise && record.exercise.length > 0) {
-      const updated = [...currentData.exercise];
-      record.exercise.forEach(newEx => {
-        const norm = (s) => (s||"").trim().toLowerCase().replace(/\s+/g,"").replace(/\(.*?\)/g,"");
-        const idx = updated.findIndex(ex => norm(ex) === norm(newEx));
-        if (idx !== -1) {
-          updated[idx] = newEx;
-        } else {
-          updated.push(newEx);
-        }
-      });
-      patch.exercise = updated;
-    }
-    if (Object.keys(patch).length > 0) {
-      updateToday(patch);
-    }
+    setDailyLog(prev => {
+      const currentData = prev[td] || { food:[], water:0, exercise:[] };
+      const patch = {};
+      if (record.food && record.food.length > 0) {
+        const updated = [...currentData.food];
+        record.food.forEach(newItem => {
+          const norm = (s) => (s||"").trim().toLowerCase().replace(/\s+/g,"");
+          const idx = updated.findIndex(f => norm(f.name) === norm(newItem.name));
+          if (idx !== -1) {
+            updated[idx] = { ...updated[idx], cal: newItem.cal };
+          } else {
+            updated.push(newItem);
+          }
+        });
+        patch.food = updated;
+      }
+      if (record.water && record.water > 0) {
+        patch.water = (currentData.water || 0) + record.water;
+      }
+      if (record.exercise && record.exercise.length > 0) {
+        const updated = [...currentData.exercise];
+        record.exercise.forEach(newEx => {
+          const norm = (s) => (s||"").trim().toLowerCase().replace(/\s+/g,"").replace(/\(.*?\)/g,"");
+          const idx = updated.findIndex(ex => norm(ex) === norm(newEx));
+          if (idx !== -1) {
+            updated[idx] = newEx;
+          } else {
+            updated.push(newEx);
+          }
+        });
+        patch.exercise = updated;
+      }
+      if (Object.keys(patch).length > 0) {
+        const newData = { ...currentData, ...patch };
+        const updated = { ...prev, [td]: newData };
+        sbUpsert("daily_log", { date: td, food: newData.food||[], water: newData.water||0, exercise: newData.exercise||[] });
+        return updated;
+      }
+      return prev;
+    });
   }
 
   // ── 채팅 전송 ──
@@ -1276,7 +1308,7 @@ export default function App() {
                       <span key={i} className="fade-in" style={{ padding:"4px 10px", background:t.tagBg, borderRadius:12, fontSize:13, color:t.primary, border:`1px solid ${t.primaryBorder}`, display:"flex", alignItems:"center", gap:4 }}>
                         {name}{cal ? ` ${cal}kcal` : ""}
                         <button onClick={() => isFav ? removeFavorite(name) : addFavorite(name, cal)} style={{ border:"none", background:"none", cursor:"pointer", color:isFav?"#f59e0b":t.textFaint, fontSize:12, padding:0 }}>{isFav?"★":"☆"}</button>
-                        <button onClick={()=>updateToday({ food:todayData.food.filter((_,j)=>j!==i) })} style={{ border:"none", background:"none", cursor:"pointer", color:t.textFaint, fontSize:11, padding:0 }}>✕</button>
+                        <button onClick={()=>updateToday(cur => ({ food:cur.food.filter((_,j)=>j!==i) }))} style={{ border:"none", background:"none", cursor:"pointer", color:t.textFaint, fontSize:11, padding:0 }}>✕</button>
                       </span>
                     );
                   })}
@@ -1352,7 +1384,7 @@ export default function App() {
                   {todayData.exercise.map((ex,i) => (
                     <span key={i} className="fade-in" style={{ padding:"4px 10px", background:t.tagBg, borderRadius:12, fontSize:13, color:t.primary, border:`1px solid ${t.primaryBorder}` }}>
                       {ex}
-                      <button onClick={()=>updateToday({ exercise:todayData.exercise.filter((_,j)=>j!==i) })} style={{ border:"none", background:"none", cursor:"pointer", color:t.textFaint, marginLeft:4, fontSize:11 }}>✕</button>
+                      <button onClick={()=>updateToday(cur => ({ exercise:cur.exercise.filter((_,j)=>j!==i) }))} style={{ border:"none", background:"none", cursor:"pointer", color:t.textFaint, marginLeft:4, fontSize:11 }}>✕</button>
                     </span>
                   ))}
                   {todayData.exercise.length===0 && <span style={{ fontSize:13, color:t.textFaint }}>아직 없어요</span>}
