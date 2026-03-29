@@ -16,6 +16,9 @@ async function sbGet(table, filters="") {
   } catch(e) { console.error("sbGet fetch error:", e); return null; }
 }
 
+let _syncFailed = false;
+function getSyncFailed() { return _syncFailed; }
+
 async function sbUpsert(table, data) {
   const conflicts = table === "user_settings" ? "user_id" : "user_id,date";
   try {
@@ -29,8 +32,9 @@ async function sbUpsert(table, data) {
       },
       body: JSON.stringify({ ...data, user_id: _userId })
     });
-    if (!res.ok) console.error("sbUpsert error:", res.status, await res.text());
-  } catch(e) { console.error("sbUpsert fetch error:", e); }
+    if (!res.ok) { console.error("sbUpsert error:", res.status, await res.text()); _syncFailed = true; }
+    else { _syncFailed = false; }
+  } catch(e) { console.error("sbUpsert fetch error:", e); _syncFailed = true; }
 }
 
 // ── 한국 음식 칼로리 DB ──
@@ -581,6 +585,24 @@ export default function App() {
     fetchFromSupabase(setWeightLog, setDailyLog, setGoalWeight, setHeight).finally(() => setSyncing(false));
   }, [userId]);
 
+  // 자정 넘김 감지: 날짜 바뀌면 채팅 리셋 + 리렌더
+  const [currentDate, setCurrentDate] = useState(todayStr());
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const now = todayStr();
+      if (now !== currentDate) {
+        setCurrentDate(now);
+        if (userId) {
+          setMsgs(defaultMsgs);
+          history.current = [];
+          saveHistory();
+          setChecks(DEFAULT_CHECKLIST.map(() => false));
+        }
+      }
+    }, 60 * 1000);
+    return () => clearInterval(timer);
+  }, [currentDate, userId]);
+
   useEffect(() => {
     if (userId) {
       save(`${userId}_msgs`, msgs);
@@ -872,8 +894,9 @@ export default function App() {
       : msg || "이 음식 분석해주세요.";
     content.push({ type:"text", text:defaultPrompt });
     history.current.push({ role:"user", content });
-    // 히스토리 크기 제한: 최근 20턴만 유지, 오래된 이미지 base64 제거
+    // 히스토리 크기 제한: 최근 20턴만 유지
     if (history.current.length > 40) history.current = history.current.slice(-40);
+    const userMsgIdx = history.current.length - 1;
     const trimmedHistory = history.current.map(h => {
       if (Array.isArray(h.content)) {
         return { ...h, content: h.content.map(c => c.type === "image" ? { type:"text", text:"[이전에 보낸 이미지]" } : c) };
@@ -914,7 +937,14 @@ export default function App() {
       }
 
       setMsgs(prev => [...prev, { role:"assistant", text:cleanReply, autoRecord: autoRecordMsg }]);
-    } catch(e) { setError("오류: "+e.message); }
+    } catch(e) {
+      // API 실패 시 history에서 응답 없는 user 메시지 제거
+      if (history.current.length > 0 && history.current[history.current.length-1].role === "user") {
+        history.current.pop();
+        saveHistory();
+      }
+      setError("오류: "+e.message);
+    }
     finally { setBusy(false); }
   }
 
@@ -1024,7 +1054,7 @@ export default function App() {
           <div style={{ width:40, height:40, borderRadius:"50%", background:"rgba(255,255,255,0.2)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:20 }}>🥗</div>
           <div style={{ flex:1 }}>
             <div style={{ color:t.headerText, fontWeight:600, fontSize:16 }}>다이어트 쌤 <span style={{ fontSize:12, fontWeight:400, opacity:0.8 }}>({userId})</span></div>
-            <div style={{ color:t.headerSub, fontSize:11 }}>{busy||weeklyBusy?"분석 중...":"온라인 · 사진 분석 가능"}</div>
+            <div style={{ color:getSyncFailed()?"#fca5a5":t.headerSub, fontSize:11 }}>{busy||weeklyBusy?"분석 중...":getSyncFailed()?"⚠ 저장 실패 · 네트워크 확인":"온라인 · 사진 분석 가능"}</div>
           </div>
           {/* 로그아웃 */}
           <button onClick={logout} style={{ width:36, height:36, borderRadius:"50%", border:"none", background:"rgba(255,255,255,0.2)", fontSize:14, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", transition:"all 0.2s", color:"#fff" }}>
