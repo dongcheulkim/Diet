@@ -1,4 +1,4 @@
-export const config = { maxDuration: 30 };
+export const config = { maxDuration: 60 };
 
 export default async function handler(req, res) {
   // CORS
@@ -22,21 +22,37 @@ export default async function handler(req, res) {
     req.body.max_tokens = 2000;
   }
 
-  try {
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify(req.body),
-    });
+  // 최대 3회 재시도 (overloaded/529 대응)
+  const MAX_RETRIES = 3;
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    try {
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify(req.body),
+      });
 
-    const data = await response.json();
-    return res.status(response.status).json(data);
-  } catch (e) {
-    console.error("API Error:", e);
-    return res.status(500).json({ error: { message: e.message } });
+      // overloaded(529) 또는 서버에러(500+)면 재시도
+      if (response.status === 529 || response.status >= 500) {
+        if (attempt < MAX_RETRIES - 1) {
+          await new Promise(r => setTimeout(r, (attempt + 1) * 2000));
+          continue;
+        }
+      }
+
+      const data = await response.json();
+      return res.status(response.status).json(data);
+    } catch (e) {
+      if (attempt < MAX_RETRIES - 1) {
+        await new Promise(r => setTimeout(r, (attempt + 1) * 2000));
+        continue;
+      }
+      console.error("API Error:", e);
+      return res.status(500).json({ error: { message: e.message } });
+    }
   }
 }
